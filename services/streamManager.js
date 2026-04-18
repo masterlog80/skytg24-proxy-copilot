@@ -69,8 +69,15 @@ class StreamManager {
    * player only initialises after all JS / plugins have run, so a plain HTTP
    * fetch of the page source is not sufficient – we need to execute the page
    * fully.
+   *
+   * @param {string} [targetUrl]    Page URL to navigate to (defaults to SKY_PAGE_URL)
+   * @param {string} [searchString] Substring to identify the desired stream URL
+   *                                (defaults to 'master.m3u8')
    */
-  async fetchSkyUrl() {
+  async fetchSkyUrl(targetUrl, searchString) {
+    const pageUrl  = (targetUrl    && targetUrl.trim())    || SKY_PAGE_URL;
+    const needle   = (searchString && searchString.trim()) || 'master.m3u8';
+
     let browser;
     try {
       try {
@@ -91,14 +98,14 @@ class StreamManager {
       });
       const page = await context.newPage();
 
-      // Resolve immediately on master.m3u8; record any other .m3u8 as a
-      // fallback in case master.m3u8 never appears.
+      // Resolve immediately when the needle is found; record any other .m3u8
+      // as a fallback in case the needle URL never appears.
       let resolveM3u8;
       let fallbackUrl = null;
       const m3u8Promise = new Promise((resolve) => { resolveM3u8 = resolve; });
 
       const handleUrl = (url) => {
-        if (url.includes('master.m3u8')) {
+        if (url.includes(needle)) {
           resolveM3u8(url);
         } else if (url.includes('.m3u8') && !fallbackUrl) {
           fallbackUrl = url;
@@ -110,7 +117,7 @@ class StreamManager {
       page.on('response', onResponse);
 
       // Navigate and wait for the full page (all scripts) to load.
-      await page.goto(SKY_PAGE_URL, { waitUntil: 'load', timeout: PAGE_LOAD_TIMEOUT_MS });
+      await page.goto(pageUrl, { waitUntil: 'load', timeout: PAGE_LOAD_TIMEOUT_MS });
 
       // Dismiss cookie / GDPR consent banners so they don't block the player.
       const consentSelectors = [
@@ -160,7 +167,7 @@ class StreamManager {
 
       // After the page has loaded and the player has been nudged, wait up to
       // BROWSER_FETCH_TIMEOUT_MS for the HLS manifest request to appear.
-      // If master.m3u8 never arrives but a generic .m3u8 was captured, use that.
+      // If the needle URL never arrives but a generic .m3u8 was captured, use that.
       let timeoutId;
       const timeoutPromise = new Promise((_, reject) => {
         timeoutId = setTimeout(
