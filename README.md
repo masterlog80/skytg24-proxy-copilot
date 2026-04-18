@@ -65,6 +65,7 @@ cd skytg24-proxy-copilot
 
 # Build the image
 yes | docker image prune --all
+yes | docker builder prune --all
 docker build -t skytg24-proxy-copilot .
 
 # Copy your .ovpn files into config/vpn/
