@@ -327,7 +327,7 @@ class StreamManager {
     });
 
     app.get('/stream', async (req, res) => {
-      try { await this._proxy(sourceUrl, req, res, port); }
+      try { await this._proxy(sourceUrl, req, res); }
       catch (e) { res.status(502).send(e.message); }
     });
 
@@ -346,7 +346,7 @@ class StreamManager {
         return res.status(403).send('Proxy target host not allowed');
       }
 
-      try { await this._proxy(target, req, res, port); }
+      try { await this._proxy(target, req, res); }
       catch (e) { res.status(502).send(e.message); }
     });
 
@@ -428,7 +428,7 @@ class StreamManager {
     } catch (_) { /* ignore – proxy operation must not be affected */ }
   }
 
-  async _proxy(url, req, res, port) {
+  async _proxy(url, req, res) {
     const upstream = await fetch(url, {
       headers: {
         ...FETCH_HEADERS,
@@ -446,9 +446,14 @@ class StreamManager {
 
     if (isPlaylist) {
       const body = await upstream.text();
+      // Use the Host header from the incoming request so that rewritten segment
+      // URLs point back to whichever address/port the client used to reach us.
+      // Validate the header to ensure the port matches our known proxy port and
+      // the hostname only contains safe characters before trusting it.
+      const proxyHost = this._resolveProxyHost(req.headers.host);
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.set('Cache-Control', 'no-cache, no-store');
-      res.send(this._rewritePlaylist(body, url, port));
+      res.send(this._rewritePlaylist(body, url, proxyHost));
     } else {
       res.status(upstream.status);
       res.set('Content-Type', ct);
@@ -458,10 +463,40 @@ class StreamManager {
     }
   }
 
+  /**
+   * Return the proxy host string (`hostname:port`) to embed in rewritten
+   * playlist URLs.  We prefer the value from the request `Host` header so that
+   * clients on remote machines get URLs that point back to the correct address.
+   * However the header is client-supplied, so we validate it via URL parsing:
+   *   • the value must parse as a valid authority (hostname + port)
+   *   • the port must match the port we are actually listening on
+   * If validation fails we fall back to the server-configured PROXY_HOST.
+   */
+  _resolveProxyHost(hostHeader) {
+    const port = this._state.port;
+    if (hostHeader) {
+      try {
+        // Prepend a scheme so the URL parser can interpret the Host value as an
+        // authority component (hostname + optional port).
+        const parsed = new URL(`http://${hostHeader}`);
+        // Only trust the header when its port matches our listening port.
+        // If the port is omitted in the header (parsed.port === ''), parseInt
+        // returns NaN and the comparison fails, causing a safe fallback to
+        // PROXY_HOST — this is intentional for non-standard proxy ports.
+        if (parseInt(parsed.port, 10) === port) {
+          return hostHeader;
+        }
+      } catch {
+        // Malformed Host header – fall through to the default below.
+      }
+    }
+    return `${PROXY_HOST}:${port}`;
+  }
+
   /** Rewrite every non-comment line in an M3U8 to go through our /proxy endpoint */
-  _rewritePlaylist(content, baseUrl, port) {
-    const base     = new URL(baseUrl);
-    const proxyBase = `http://${PROXY_HOST}:${port}/proxy?url=`;
+  _rewritePlaylist(content, baseUrl, proxyHost) {
+    const base      = new URL(baseUrl);
+    const proxyBase = `http://${proxyHost}/proxy?url=`;
 
     return content
       .split('\n')
