@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sky TG24 VPN Proxy</title>
+  <!-- Chart.js bundled locally – no external CDN required -->
+  <script src="/chart.umd.min.js"></script>
+  <style>
+    /* ─── Design tokens ─────────────────────────────────────────────────── */
+    :root {
+      --bg:      #0d1117;
+      --bg2:     #161b22;
+      --card:    #1c2431;
+      --border:  #30363d;
+      --green:   #3fb950;
+      --blue:    #58a6ff;
+      --red:     #f85149;
+      --yellow:  #e3b341;
+      --txt:     #e6edf3;
+      --txt2:    #8b949e;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--txt);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ─── Layout helpers ─────────────────────────────────────────────────── */
+    .flex        { display: flex; }
+    .flex-col    { flex-direction: column; }
+    .flex-1      { flex: 1; }
+    .items-center { align-items: center; }
+    .items-end   { align-items: flex-end; }
+    .justify-between { justify-content: space-between; }
+    .gap-2  { gap: 8px; }
+    .gap-3  { gap: 12px; }
+    .gap-4  { gap: 16px; }
+    .mt-1   { margin-top: 4px; }
+    .mt-2   { margin-top: 8px; }
+    .mb-3   { margin-bottom: 12px; }
+    .mb-4   { margin-bottom: 16px; }
+    .ml-auto { margin-left: auto; }
+    .mr-1   { margin-right: 4px; }
+    .p-4    { padding: 16px; }
+    .px-6   { padding-left: 24px; padding-right: 24px; }
+    .py-3   { padding-top: 12px; padding-bottom: 12px; }
+    .text-xs    { font-size: 12px; }
+    .text-sm    { font-size: 13px; }
+    .text-lg    { font-size: 18px; }
+    .text-xl    { font-size: 20px; }
+    .text-2xl   { font-size: 24px; }
+    .font-bold  { font-weight: 700; }
+    .font-semibold { font-weight: 600; }
+    .w-full  { width: 100%; }
+    .min-h-screen { min-height: 100vh; }
+    .block   { display: block; }
+
+    /* ─── Grid ──────────────────────────────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .chips-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ─── Header ─────────────────────────────────────────────────────────── */
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-logo { font-size: 28px; }
+    .header-title {
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--blue);
+      line-height: 1.1;
+    }
+    .header-sub { font-size: 11px; color: var(--txt2); }
+
+    /* ─── Cards ──────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+    }
+    .card-title {
+      font-weight: 600;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .icon { font-size: 14px; }
+
+    /* ─── Status dot ─────────────────────────────────────────────────────── */
+    .dot {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-green  { background: var(--green);  box-shadow: 0 0 6px var(--green); }
+    .dot-red    { background: var(--red);    box-shadow: 0 0 6px var(--red); }
+    .dot-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); animation: blink 1s infinite; }
+    .dot-grey   { background: var(--txt2); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ─── Form controls ──────────────────────────────────────────────────── */
+    label {
+      font-size: 12px;
+      color: var(--txt2);
+      display: block;
+      margin-bottom: 4px;
+    }
+    input, select {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      color: var(--txt);
+      border-radius: 6px;
+      padding: 8px 12px;
+      width: 100%;
+      font-size: 14px;
+      transition: border-color .15s;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--blue);
+    }
+    input::placeholder { color: var(--txt2); }
+    input[type=number] { width: 120px; }
+    select option { background: var(--bg2); }
+
+    /* ─── Buttons ─────────────────────────────────────────────────────────── */
+    .btn {
+      border: none;
+      border-radius: 6px;
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: filter .15s, opacity .15s;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { filter: brightness(1.15); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-green { background: var(--green);  color: #000; }
+    .btn-red   { background: var(--red);    color: #fff; }
+    .btn-ghost {
+      background: var(--bg2);
+      color: var(--txt);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover:not(:disabled) { border-color: var(--blue); filter: none; }
+    .btn-sm { padding: 3px 10px; font-size: 11px; }
+
+    /* ─── Stat chips ──────────────────────────────────────────────────────── */
+    .chip {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 10px;
+      text-align: center;
+    }
+    .chip-lbl { font-size: 11px; color: var(--txt2); }
+    .chip-val { font-size: 22px; font-weight: 700; line-height: 1.2; margin-top: 4px; }
+
+    /* ─── URL / message boxes ─────────────────────────────────────────────── */
+    .msg-box {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--txt2);
+      min-height: 34px;
+      word-break: break-all;
+    }
+    .url-box {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 12px;
+      color: var(--blue);
+      word-break: break-all;
+      min-height: 34px;
+    }
+
+    /* ─── Log ─────────────────────────────────────────────────────────────── */
+    #log-list {
+      height: 150px;
+      overflow-y: auto;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 11px;
+      padding: 8px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .log-line { padding: 1px 0; }
+    .log-info  { color: var(--blue); }
+    .log-ok    { color: var(--green); }
+    .log-err   { color: var(--red); }
+    .log-warn  { color: var(--yellow); }
+
+    /* ─── Traffic rates bar ──────────────────────────────────────────────── */
+    .rate-bar {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+
+    /* ─── Scrollbar ───────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════  HEADER  ════════════════════════ -->
+<header>
+  <div class="flex items-center gap-3">
+    <span class="header-logo">📺</span>
+    <div>
+      <div class="header-title">Sky TG24 VPN Proxy</div>
+      <div class="header-sub">Windscribe · OpenVPN · HLS Proxy · Control Panel</div>
+    </div>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <span class="dot dot-grey" id="hdr-dot"></span>
+    <span id="hdr-label" style="color:var(--txt2)">Disconnected</span>
+  </div>
+</header>
+
+<!-- ════════════════════════  MAIN  ════════════════════════ -->
+<div class="main-grid">
+
+  <!-- ─────────────  LEFT COLUMN  ───────────── -->
+  <div class="flex flex-col gap-4">
+
+    <!-- VPN Control -->
+    <div class="card">
+      <div class="card-title">
+        <span>🛡</span> VPN Control
+      </div>
+      <div class="flex flex-col gap-3">
+
+        <div>
+          <label>Windscribe Endpoint</label>
+          <select id="vpn-endpoint">
+            <option value="">⏳ Loading configs…</option>
+          </select>
+          <div class="text-xs mt-1" style="color:var(--txt2)">
+            Place <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">.ovpn</code>
+            files in <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">./config/vpn/</code>.
+            See README.
+          </div>
+        </div>
+
+        <div>
+          <label>OpenVPN Username</label>
+          <input type="text" id="vpn-user" placeholder="Windscribe username" autocomplete="username" />
+        </div>
+
+        <div>
+          <label>OpenVPN Password</label>
+          <input type="password" id="vpn-pass" placeholder="Windscribe password" autocomplete="current-password" />
+        </div>
+
+        <div class="flex gap-2">
+          <button class="btn btn-green flex-1" id="btn-connect"    onclick="connectVPN()">⚡ Connect</button>
+          <button class="btn btn-red   flex-1" id="btn-disconnect" onclick="disconnectVPN()" disabled>✖ Disconnect</button>
+        </div>
+
+        <div class="msg-box" id="vpn-msg">Ready</div>
+      </div>
+    </div>
+
+    <!-- Stream Control -->
+    <div class="card">
+      <div class="card-title">
+        <span>📡</span> Stream Control
+      </div>
+      <div class="flex flex-col gap-3">
+
+        <div>
+          <label>Live Stream URL <span style="color:var(--blue)">(auto-detected from Sky TG24)</span></label>
+          <div class="flex gap-2">
+            <input type="text" id="stream-url" placeholder="Click ↺ to fetch from tg24.sky.it/diretta …" />
+            <button class="btn btn-ghost" id="btn-fetch" onclick="fetchURL()" title="Fetch live URL from Sky TG24" style="padding:8px 12px">↺</button>
+          </div>
+        </div>
+
+        <div>
+          <label>Fallback URL <span style="color:var(--txt2)">(used when auto-detect fails)</span></label>
+          <input type="text" id="stream-fallback" placeholder="https://…/master.m3u8" />
+        </div>
+
+        <div class="flex gap-4 items-end">
+          <div>
+            <label>Proxy Port</label>
+            <input type="number" id="stream-port" value="6443" min="1024" max="65535" />
+          </div>
+          <div class="flex gap-2 flex-1">
+            <button class="btn btn-green flex-1" id="btn-start" onclick="startStream()">▶ Start</button>
+            <button class="btn btn-red   flex-1" id="btn-stop"  onclick="stopStream()" disabled>◼ Stop</button>
+          </div>
+        </div>
+
+        <!-- Local viewer URL (shown only when streaming) -->
+        <div id="local-url-row" style="display:none">
+          <label>Local stream URL (open in VLC / browser)</label>
+          <div class="url-box flex items-center gap-2">
+            <span id="local-url-text"></span>
+            <button class="btn btn-ghost btn-sm ml-auto" onclick="copyURL()" title="Copy to clipboard">⎘</button>
+          </div>
+        </div>
+
+        <div class="msg-box" id="stream-msg">Stream not started</div>
+      </div>
+    </div>
+
+  </div><!-- /left -->
+
+  <!-- ─────────────  RIGHT COLUMN  ───────────── -->
+  <div class="flex flex-col gap-4">
+
+    <!-- Status chips -->
+    <div class="chips-grid">
+      <div class="chip">
+        <div class="chip-lbl">VPN Status</div>
+        <div class="chip-val" id="chip-vpn-val" style="color:var(--txt2)">—</div>
+        <div class="chip-lbl mt-1" id="chip-vpn-ip">—</div>
+      </div>
+      <div class="chip">
+        <div class="chip-lbl">Stream</div>
+        <div class="chip-val" id="chip-stream-val" style="color:var(--txt2)">Inactive</div>
+        <div class="chip-lbl mt-1" id="chip-stream-port">—</div>
+      </div>
+      <div class="chip">
+        <div class="chip-lbl">Clients</div>
+        <div class="chip-val" id="chip-clients" style="color:var(--blue)">0</div>
+        <div class="chip-lbl mt-1">Local viewers</div>
+      </div>
+    </div>
+
+    <!-- Traffic graph -->
+    <div class="card">
+      <div class="flex items-center justify-between mb-3">
+        <div class="card-title" style="margin-bottom:0">📊 VPN Traffic</div>
+        <div class="rate-bar">
+          <span><span style="color:var(--green)">▲</span> <span id="tx-rate" style="color:var(--txt2)">0 B/s</span></span>
+          <span><span style="color:var(--blue)">▼</span> <span id="rx-rate" style="color:var(--txt2)">0 B/s</span></span>
+        </div>
+      </div>
+      <div style="position:relative;height:120px">
+        <canvas id="traffic-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Detected stream URL -->
+    <div class="card">
+      <div class="card-title">🔗 Detected Live Stream URL</div>
+      <div class="url-box" id="detected-url" style="color:var(--txt2)">Not fetched yet</div>
+    </div>
+
+    <!-- Event log -->
+    <div class="card">
+      <div class="flex items-center justify-between mb-3">
+        <div class="card-title" style="margin-bottom:0">🖥 Event Log</div>
+        <button class="btn btn-ghost btn-sm" onclick="clearLog()">Clear</button>
+      </div>
+      <div id="log-list"></div>
+    </div>
+
+  </div><!-- /right -->
+
+</div><!-- /main-grid -->
+
+<!-- ═══════════════════════  SCRIPT  ═══════════════════════ -->
+<script>
+'use strict';
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+const MAX_PTS = 60;
+const txData  = Array(MAX_PTS).fill(0);
+const rxData  = Array(MAX_PTS).fill(0);
+const labels  = Array(MAX_PTS).fill('');
+
+const trafficChart = new Chart(document.getElementById('traffic-chart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'Upload (TX)',
+        data: txData,
+        borderColor: '#3fb950',
+        backgroundColor: 'rgba(63,185,80,.12)',
+        borderWidth: 1.5,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      },
+      {
+        label: 'Download (RX)',
+        data: rxData,
+        borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,.12)',
+        borderWidth: 1.5,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      },
+    ],
+  },
+  options: {
+    animation: { duration: 200 },
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: { display: false },
+      y: {
+        beginAtZero: true,
+        ticks: {
+          color: '#8b949e',
+          callback: v => fmtRate(v),
+          maxTicksLimit: 4,
+        },
+        grid: { color: 'rgba(48,54,61,.7)' },
+      },
+    },
+    plugins: {
+      legend: {
+        labels: { color: '#8b949e', boxWidth: 10, font: { size: 11 } },
+      },
+      tooltip: {
+        callbacks: { label: c => `${c.dataset.label}: ${fmtRate(c.parsed.y)}` },
+      },
+    },
+  },
+});
+
+// ── WebSocket – live state push ───────────────────────────────────────────────
+let ws;
+function initWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}`);
+  ws.onmessage = ({ data }) => { try { applyState(JSON.parse(data)); } catch (_) {} };
+  ws.onclose   = () => setTimeout(initWS, 2000);
+  ws.onerror   = () => ws.close();
+}
+initWS();
+
+// ── State handlers ────────────────────────────────────────────────────────────
+function applyState({ vpn, stream, stats }) {
+  if (vpn)    renderVPN(vpn);
+  if (stream) renderStream(stream);
+  if (stats)  renderStats(stats);
+}
+
+function renderVPN(v) {
+  const { status, endpoint, ip, error } = v;
+
+  // Header
+  document.getElementById('hdr-dot').className = 'dot ' + dotClass(status);
+  document.getElementById('hdr-label').textContent =
+    status.charAt(0).toUpperCase() + status.slice(1) + (endpoint ? ` · ${endpoint}` : '');
+
+  // Chip
+  const cv  = document.getElementById('chip-vpn-val');
+  cv.textContent = status.toUpperCase();
+  cv.style.color = statusColor(status);
+  document.getElementById('chip-vpn-ip').textContent = ip || '—';
+
+  // Buttons
+  const busy = status === 'connecting' || status === 'connected';
+  document.getElementById('btn-connect').disabled    = busy;
+  document.getElementById('btn-disconnect').disabled = !busy;
+
+  // Message
+  const msg = document.getElementById('vpn-msg');
+  if (status === 'connected')   { msg.textContent = `✓ Connected to ${endpoint} (${ip||'?'})`; msg.style.color = 'var(--green)'; }
+  else if (status === 'connecting') { msg.textContent = `⏳ Connecting to ${endpoint}…`; msg.style.color = 'var(--yellow)'; }
+  else if (status === 'error')  { msg.textContent = `✗ ${error}`; msg.style.color = 'var(--red)'; }
+  else                          { msg.textContent = 'Ready'; msg.style.color = 'var(--txt2)'; }
+}
+
+function renderStream(st) {
+  const cv   = document.getElementById('chip-stream-val');
+  const cp   = document.getElementById('chip-stream-port');
+  const msg  = document.getElementById('stream-msg');
+  const lrow = document.getElementById('local-url-row');
+
+  if (st.active) {
+    cv.textContent = 'ACTIVE';   cv.style.color = 'var(--green)';
+    cp.textContent = `Port ${st.port}`;
+    if (!msg.textContent.startsWith('✗')) {
+      msg.textContent = `✓ Proxying – http://localhost:${st.port}`;
+      msg.style.color = 'var(--green)';
+    }
+    lrow.style.display = '';
+    document.getElementById('local-url-text').textContent = `http://localhost:${st.port}/stream`;
+  } else {
+    cv.textContent = 'Inactive'; cv.style.color = 'var(--txt2)';
+    cp.textContent = '—';
+    lrow.style.display = 'none';
+    if (!msg.textContent.startsWith('✗')) {
+      msg.textContent = 'Stream not started'; msg.style.color = 'var(--txt2)';
+    }
+  }
+
+  document.getElementById('chip-clients').textContent = st.clientCount ?? 0;
+  document.getElementById('btn-start').disabled = st.active;
+  document.getElementById('btn-stop').disabled  = !st.active;
+}
+
+function renderStats(stats) {
+  const vpnIf = stats.vpn;
+  const tx = vpnIf ? vpnIf.txRate : 0;
+  const rx = vpnIf ? vpnIf.rxRate : 0;
+
+  document.getElementById('tx-rate').textContent = fmtRate(tx);
+  document.getElementById('rx-rate').textContent = fmtRate(rx);
+
+  txData.push(tx); txData.shift();
+  rxData.push(rx); rxData.shift();
+  trafficChart.update('none');
+}
+
+// ── VPN actions ───────────────────────────────────────────────────────────────
+async function connectVPN() {
+  const config   = document.getElementById('vpn-endpoint').value;
+  const username = document.getElementById('vpn-user').value.trim();
+  const password = document.getElementById('vpn-pass').value;
+  if (!config)   return setMsg('vpn-msg', '✗ Select an endpoint',   'var(--red)');
+  if (!username) return setMsg('vpn-msg', '✗ Enter username',        'var(--red)');
+  if (!password) return setMsg('vpn-msg', '✗ Enter password',        'var(--red)');
+
+  setMsg('vpn-msg', '⏳ Sending connect request…', 'var(--yellow)');
+  document.getElementById('btn-connect').disabled    = true;
+  document.getElementById('btn-disconnect').disabled = true;
+  try {
+    const r = await post('/api/vpn/connect', { config, username, password });
+    if (r.error) setMsg('vpn-msg', `✗ ${r.error}`, 'var(--red)');
+    else         log(`VPN connect requested · ${config}`, 'info');
+  } catch (e) {
+    setMsg('vpn-msg', `✗ ${e.message}`, 'var(--red)');
+  }
+}
+
+async function disconnectVPN() {
+  log('VPN disconnect requested', 'warn');
+  try { await post('/api/vpn/disconnect', {}); }
+  catch (e) { log(`Disconnect error: ${e.message}`, 'err'); }
+}
+
+// ── Stream actions ─────────────────────────────────────────────────────────────
+async function fetchURL() {
+  const btn = document.getElementById('btn-fetch');
+  btn.disabled = true;
+  setMsg('stream-msg', '⏳ Fetching live URL from tg24.sky.it…', 'var(--yellow)');
+  try {
+    const r = await post('/api/stream/fetch-url', {});
+    if (r.url) {
+      document.getElementById('stream-url').value          = r.url;
+      document.getElementById('detected-url').textContent  = r.url;
+      document.getElementById('detected-url').style.color  = 'var(--blue)';
+      setMsg('stream-msg', '✓ URL fetched successfully', 'var(--green)');
+      log(`Stream URL: ${r.url}`, 'ok');
+    } else {
+      const err = r.error || 'Unknown error';
+      setMsg('stream-msg', `✗ ${err}`, 'var(--red)');
+      log(`Fetch failed: ${err}`, 'err');
+      const fb = document.getElementById('stream-fallback').value.trim();
+      if (fb) {
+        document.getElementById('stream-url').value = fb;
+        log('Using fallback URL', 'warn');
+      }
+    }
+  } catch (e) {
+    setMsg('stream-msg', `✗ ${e.message}`, 'var(--red)');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function startStream() {
+  let url  = document.getElementById('stream-url').value.trim();
+  const port = parseInt(document.getElementById('stream-port').value, 10);
+
+  if (!url) {
+    url = document.getElementById('stream-fallback').value.trim();
+    if (!url) return setMsg('stream-msg', '✗ Enter or fetch a stream URL first', 'var(--red)');
+    log('No main URL – using fallback URL', 'warn');
+  }
+  if (!port || port < 1024 || port > 65535)
+    return setMsg('stream-msg', '✗ Invalid port (1024–65535)', 'var(--red)');
+
+  setMsg('stream-msg', '⏳ Starting proxy…', 'var(--yellow)');
+  try {
+    const r = await post('/api/stream/start', { url, port });
+    if (r.error) setMsg('stream-msg', `✗ ${r.error}`, 'var(--red)');
+    else         log(`Stream proxy started on port ${port}`, 'ok');
+  } catch (e) {
+    setMsg('stream-msg', `✗ ${e.message}`, 'var(--red)');
+  }
+}
+
+async function stopStream() {
+  setMsg('stream-msg', '⏳ Stopping…', 'var(--yellow)');
+  try {
+    await post('/api/stream/stop', {});
+    log('Stream proxy stopped', 'warn');
+  } catch (e) {
+    setMsg('stream-msg', `✗ ${e.message}`, 'var(--red)');
+  }
+}
+
+function copyURL() {
+  const t = document.getElementById('local-url-text').textContent;
+  navigator.clipboard?.writeText(t)
+    .then(() => log('URL copied to clipboard', 'info'))
+    .catch(() => {});
+}
+
+// ── Populate VPN endpoint selector on load ────────────────────────────────────
+async function loadConfigs() {
+  try {
+    const { configs } = await (await fetch('/api/vpn/configs')).json();
+    const sel = document.getElementById('vpn-endpoint');
+    sel.innerHTML = configs && configs.length
+      ? '<option value="">— select endpoint —</option>' +
+        configs.map(c => `<option value="${esc(c.file)}">${esc(c.name)}</option>`).join('')
+      : '<option value="">No .ovpn files found – see README</option>';
+  } catch (e) {
+    document.getElementById('vpn-endpoint').innerHTML =
+      `<option value="">Error loading configs: ${e.message}</option>`;
+  }
+}
+loadConfigs();
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+async function post(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+function setMsg(id, txt, color) {
+  const el = document.getElementById(id);
+  el.textContent = txt;
+  el.style.color = color;
+}
+
+function dotClass(s) {
+  return s === 'connected' ? 'dot-green' : s === 'connecting' ? 'dot-yellow' : s === 'error' ? 'dot-red' : 'dot-grey';
+}
+
+function statusColor(s) {
+  return s === 'connected' ? 'var(--green)' : s === 'connecting' ? 'var(--yellow)' : s === 'error' ? 'var(--red)' : 'var(--txt2)';
+}
+
+function fmtRate(bps) {
+  if (bps >= 1_048_576) return `${(bps / 1_048_576).toFixed(1)} MB/s`;
+  if (bps >= 1_024)     return `${(bps / 1_024).toFixed(0)} KB/s`;
+  return `${Math.round(bps)} B/s`;
+}
+
+function log(msg, type = 'info') {
+  const el   = document.getElementById('log-list');
+  const line = document.createElement('div');
+  line.className   = `log-line log-${type}`;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() { document.getElementById('log-list').innerHTML = ''; }
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+log('Control panel loaded', 'info');
+</script>
+</body>
+</html>

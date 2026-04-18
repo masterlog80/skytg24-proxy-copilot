@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  skytg24-proxy:
+    build: .
+    image: skytg24-proxy:latest
+    container_name: skytg24-proxy
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"   # Web UI / Control API
+      - "6443:6443"   # HLS stream proxy (default port)
+
+    volumes:
+      # Mount your Windscribe .ovpn config files here
+      - ./config/vpn:/config/vpn:ro
+
+    # OpenVPN needs NET_ADMIN + TUN device
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+
+    sysctls:
+      # Relax reverse-path filter so VPN routing works inside the container
+      - net.ipv4.conf.all.rp_filter=2
+      - net.ipv6.conf.all.disable_ipv6=1
+
+    environment:
+      - CONTROL_PORT=3000
+      # Set to the Docker host IP (or hostname) so rewritten HLS URLs
+      # point to a host reachable by stream clients.
+      # Examples: localhost, 192.168.1.100, mymachine.local
+      - PROXY_HOST=localhost
+      # Override the directory where .ovpn files are read from
+      - VPN_CONFIG_DIR=/config/vpn
