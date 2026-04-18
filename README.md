@@ -10,18 +10,6 @@ A Docker image that provides a **modern dark-themed web UI** to:
 
 ---
 
-## Screenshot
-
-### Control panel — idle state
-
-![Sky TG24 VPN Proxy – control panel](https://github.com/user-attachments/assets/659f710f-3460-4deb-aa55-1d14541be499)
-
-> The panel is split into two columns:
-> **Left** — VPN Control card + Stream Control card  
-> **Right** — Live status chips (VPN status, stream active/inactive, connected clients, resolution, frame-rate), VPN traffic graph, detected HLS URL box, and an event log
-
----
-
 ## Requirements
 
 | Requirement | Notes |
@@ -146,6 +134,18 @@ ports:
   - "8080:8080"
   - "9000:9000"
 ```
+
+---
+
+## Screenshot
+
+### Control panel — idle state
+
+![Sky TG24 VPN Proxy – control panel](https://github.com/user-attachments/assets/659f710f-3460-4deb-aa55-1d14541be499)
+
+> The panel is split into two columns:
+> **Left** — VPN Control card + Stream Control card  
+> **Right** — Live status chips (VPN status, stream active/inactive, connected clients, resolution, frame-rate), VPN traffic graph, detected HLS URL box, and an event log
 
 ---
 
