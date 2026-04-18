@@ -10,8 +10,9 @@ services:
       - "6443:6443"   # HLS stream proxy (default port)
 
     volumes:
-      # Mount your Windscribe .ovpn config files here
-      - ./config/vpn:/config/vpn:ro
+      # Mount your Windscribe .ovpn config files here.
+      # Settings are persisted to ./config/settings.json on the host.
+      - ./config:/config
 
     # OpenVPN needs NET_ADMIN + TUN device
     cap_add:

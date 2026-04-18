@@ -5,20 +5,36 @@ const http    = require('http');
 const WebSocket = require('ws');
 const path    = require('path');
 
-const VPNManager    = require('./services/vpnManager');
-const StreamManager = require('./services/streamManager');
-const StatsMonitor  = require('./services/statsMonitor');
+const VPNManager      = require('./services/vpnManager');
+const StreamManager   = require('./services/streamManager');
+const StatsMonitor    = require('./services/statsMonitor');
+const SettingsManager = require('./services/settingsManager');
 
 const app    = express();
 const server = http.createServer(app);
 const wss    = new WebSocket.Server({ server });
 
-const vpnManager    = new VPNManager();
-const streamManager = new StreamManager();
-const statsMonitor  = new StatsMonitor();
+const vpnManager      = new VPNManager();
+const streamManager   = new StreamManager();
+const statsMonitor    = new StatsMonitor();
+const settingsManager = new SettingsManager();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ── Settings routes ──────────────────────────────────────────────────────────
+
+app.get('/api/settings', (_req, res) => {
+  res.json(settingsManager.get());
+});
+
+app.post('/api/settings', (req, res) => {
+  try {
+    res.json(settingsManager.save(req.body || {}));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── VPN routes ──────────────────────────────────────────────────────────────
 

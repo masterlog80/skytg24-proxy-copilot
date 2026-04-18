@@ -95,6 +95,7 @@ The **Local stream URL** box in the UI shows the clickable address and a copy bu
 | `CONTROL_PORT` | `3000` | Port of the web UI / control API |
 | `PROXY_HOST` | `localhost` | Hostname inserted into rewritten HLS playlist URLs – set to your Docker host IP when clients are on a different machine |
 | `VPN_CONFIG_DIR` | `/config/vpn` | Directory where `.ovpn` files are read from |
+| `SETTINGS_FILE` | `/config/settings.json` | Path where UI settings are persisted |
 
 Example with a different host IP and custom ports:
 
@@ -144,6 +145,16 @@ Player  ─── HLS Proxy  (port 6443) ──────┴── Stream Mana
 
 ---
 
+## Settings persistence
+
+UI settings (selected VPN endpoint, username, stream port, stream URL, fallback URL) are automatically saved to `./config/settings.json` on the host whenever a field changes.  On the next page load the form is pre-filled from this file, so you do not have to re-enter your configuration after a container restart.
+
+> **Note**: The VPN **password** is intentionally **not** persisted for security reasons.
+
+The settings file is created automatically the first time a value is changed.  It is stored in the same `./config/` directory as your `.ovpn` files, so the same volume mount covers both.
+
+---
+
 ## Docker details
 
 ```bash
@@ -157,7 +168,7 @@ docker run -d \
   --device /dev/net/tun \
   -p 3000:3000 \
   -p 6443:6443 \
-  -v "$(pwd)/config/vpn:/config/vpn:ro" \
+  -v "$(pwd)/config:/config" \
   skytg24-proxy
 ```
 

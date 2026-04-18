@@ -8,3 +8,6 @@ package-lock.json
 # Never commit actual VPN credentials/configs
 # (the config/vpn/ directory is intentionally tracked for README.md only)
 config/vpn/*.ovpn
+
+# Persisted settings (may contain usernames)
+config/settings.json
