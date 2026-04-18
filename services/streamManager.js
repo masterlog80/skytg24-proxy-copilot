@@ -1,19 +1,17 @@
 'use strict';
 
-const express = require('express');
-const http    = require('http');
-const fetch   = require('node-fetch');
-const { URL } = require('url');
+const express    = require('express');
+const http       = require('http');
+const fetch      = require('node-fetch');
+const puppeteer  = require('puppeteer-core');
+const { URL }    = require('url');
 
 const SKY_PAGE_URL = 'https://tg24.sky.it/diretta';
 const PROXY_HOST   = process.env.PROXY_HOST || 'localhost';
+const CHROME_BIN   = process.env.CHROME_BIN || '/usr/bin/google-chrome-stable';
 
-// Ordered list of patterns to locate the HLS stream URL in the page source
-const HLS_PATTERNS = [
-  /https:\/\/hlslive-web-dai-gcdn-skycdn-it\.akamaized\.net[^\s"'<>\\\n]+\.m3u8(?:\?[^\s"'<>\\\n]*)?/,
-  /https:\/\/[a-z0-9-]+(?:\.skycdn\.it|\.akamaized\.net)[^\s"'<>\\\n]+\.m3u8(?:\?[^\s"'<>\\\n]*)?/,
-  /https:\/\/[^\s"'<>\\\n]+\/master\.m3u8(?:\?[^\s"'<>\\\n]*)?/,
-];
+// How long (ms) to wait for a .m3u8 request to appear after page load
+const BROWSER_FETCH_TIMEOUT_MS = 30_000;
 
 // Allowlist of hostname suffixes the HLS proxy is permitted to fetch from.
 // This prevents the /proxy endpoint from being used as an open SSRF relay.
@@ -56,41 +54,68 @@ class StreamManager {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  /** Scrape the Sky TG24 diretta page and return the first HLS URL found */
+  /**
+   * Launch a headless browser, load the Sky TG24 diretta page, and intercept
+   * the first outgoing network request for a .m3u8 HLS stream.  The player
+   * only initialises after all JS / plugins have run, so a plain HTTP fetch of
+   * the page source is not sufficient – we need to execute the page fully.
+   */
   async fetchSkyUrl() {
-    const res = await fetch(SKY_PAGE_URL, {
-      headers: FETCH_HEADERS,
-      timeout: 20_000,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} from Sky TG24`);
+    let browser;
+    try {
+      browser = await puppeteer.launch({
+        executablePath: CHROME_BIN,
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--mute-audio',
+        ],
+      });
 
-    const html = await res.text();
+      const page = await browser.newPage();
+      await page.setUserAgent(FETCH_HEADERS['User-Agent']);
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': FETCH_HEADERS['Accept-Language'],
+      });
 
-    // Normalise JSON and HTML escape sequences *before* pattern matching so
-    // that the URL patterns work regardless of how the URL is embedded in the
-    // page (e.g. JSON \/ for / or \u0026 for &, or the HTML entity &amp;).
-    // Without this, the backslash in \/ stops the character class
-    // [^\s"'<>\\\n] before reaching /master.m3u8, causing all patterns to fail.
-    // &amp; is decoded before \u0026 to prevent chained double-unescaping
-    // (e.g. \u0026amp; → &amp; → & would be incorrect).
-    const normalized = html
-      .replace(/\\\//g, '/')       // JSON \/ → /
-      .replace(/&amp;/g, '&')      // HTML entity → & (must precede \u0026 decode)
-      .replace(/\\u0026/gi, '&');  // JSON \u0026 → &
+      // Resolve as soon as the first .m3u8 URL is seen in any outgoing request;
+      // remove the listener immediately to avoid redundant calls.
+      let resolveM3u8;
+      const m3u8Promise = new Promise((resolve) => { resolveM3u8 = resolve; });
 
-    for (const pat of HLS_PATTERNS) {
-      const m = normalized.match(pat);
-      if (m) {
-        // Remove escaped double-quotes that JSON encoding may add around the URL.
-        // URL strings never legitimately contain \" so this is safe.
-        return m[0].replace(/\\"/g, '');
+      const onRequest = (request) => {
+        const url = request.url();
+        if (url.includes('.m3u8')) {
+          page.off('request', onRequest);
+          resolveM3u8(url);
+        }
+      };
+      page.on('request', onRequest);
+
+      await page.goto(SKY_PAGE_URL, { waitUntil: 'domcontentloaded', timeout: BROWSER_FETCH_TIMEOUT_MS });
+
+      let timeoutId;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(
+            'Stream URL not found. Make sure the VPN is connected to an Italian server, ' +
+            'then try again, or enter the URL manually.'
+          )),
+          BROWSER_FETCH_TIMEOUT_MS,
+        );
+      });
+
+      try {
+        return await Promise.race([m3u8Promise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId);
       }
+    } finally {
+      if (browser) await browser.close().catch(() => {});
     }
-
-    throw new Error(
-      'Stream URL not found in page. Make sure the VPN is connected to an Italian server, ' +
-      'then try again, or enter the URL manually.'
-    );
   }
 
   /** Start the HLS reverse-proxy on *port* forwarding *sourceUrl* */
