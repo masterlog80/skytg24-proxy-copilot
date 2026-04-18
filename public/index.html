@@ -564,7 +564,7 @@ function renderStream(st) {
   if (st.frameRate != null) {
     const fpsVal = st.frameRate % 1 < 0.001
       ? Math.round(st.frameRate).toString()
-      : parseFloat(st.frameRate).toFixed(3).replace(/0+$/, '');
+      : parseFloat(st.frameRate).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
     fps.textContent = fpsVal;
     fps.style.color = 'var(--blue)';
   } else {

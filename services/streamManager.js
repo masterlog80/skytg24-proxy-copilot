@@ -244,10 +244,10 @@ class StreamManager {
         const fpsMatch = line.match(/FRAME-RATE=([\d.]+)/i);
 
         const bw = bwMatch ? parseInt(bwMatch[1], 10) : 0;
-        if (bw >= bestBandwidth) {
+        if (bw > bestBandwidth) {
           bestBandwidth  = bw;
-          bestResolution = resMatch ? resMatch[1] : bestResolution;
-          bestFrameRate  = fpsMatch ? parseFloat(fpsMatch[1]) : bestFrameRate;
+          bestResolution = resMatch ? resMatch[1] : null;
+          bestFrameRate  = fpsMatch ? parseFloat(fpsMatch[1]) : null;
         }
       }
 
