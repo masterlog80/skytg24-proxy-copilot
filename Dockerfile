@@ -8,8 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CONTROL_PORT=3000 \
     PROXY_HOST=localhost \
     VPN_CONFIG_DIR=/config/vpn \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    CHROME_BIN=/usr/bin/chromium
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ── System packages ───────────────────────────────────────────────────────────
 RUN apt-get update
@@ -40,8 +39,7 @@ RUN apt-get install -y --no-install-recommends \
         xdg-utils
 
 # ── Browser ───────────────────────────────────────────────────────────────────
-#RUN apt-get install -y --no-install-recommends chromium-browser
-RUN apt-get update && apt-get install -y chromium
+# Firefox is installed via Playwright's bundled browser mechanism after npm install.
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -55,6 +53,7 @@ WORKDIR /app
 
 COPY package*.json ./
 RUN npm install --omit=dev
+RUN npx playwright install --with-deps firefox
 
 COPY server.js          ./
 COPY services/          ./services/

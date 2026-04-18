@@ -1,127 +1,13 @@
 'use strict';
 
 const express    = require('express');
-const fs         = require('fs');
 const http       = require('http');
 const fetch      = require('node-fetch');
-const puppeteer  = require('puppeteer-core');
+const { firefox } = require('playwright');
 const { URL }    = require('url');
 
 const SKY_PAGE_URL = 'https://tg24.sky.it/diretta';
 const PROXY_HOST   = process.env.PROXY_HOST || 'localhost';
-
-/**
- * Return true when *filePath* exists and is executable by the current process.
- * Uses fs.existsSync() as the primary check so that the result matches the
- * validation Puppeteer itself performs (it throws "Browser was not found" when
- * existsSync returns false).  A secondary accessSync(X_OK) call filters out
- * paths that exist on the filesystem but are not executable.
- */
-function isExecutable(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return false;
-    fs.accessSync(filePath, fs.constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Try to resolve *cmd* via the shell's PATH using `which`.
- * Returns the full path string, or null on failure.
- */
-function which(cmd) {
-  try {
-    const { execFileSync } = require('child_process');
-    const result = execFileSync('which', [cmd], { encoding: 'utf8', timeout: 3000 }).trim();
-    return result || null;
-  } catch {
-    return null;
-  }
-}
-
-// Browser command names tried as a last-resort PATH lookup.
-const CHROMIUM_COMMAND_NAMES = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable'];
-
-/**
- * Resolve the path to a Chrome or Chromium executable.
- *
- * Priority:
- *  1. CHROME_BIN environment variable (explicit override).
- *  2. Ordered candidate paths – on arm64 Chromium paths come first because
- *     Google Chrome has no official arm64 Linux build; stubs at the
- *     google-chrome-stable path would exist but fail at runtime.
- *  3. Shell PATH lookup via `which` for common Chromium command names.
- *
- * Returns the resolved path, or null when nothing is found.
- */
-function detectChromePath() {
-  const isArm64 = process.arch === 'arm64';
-
-  if (process.env.CHROME_BIN) {
-    const bin = process.env.CHROME_BIN;
-    // On arm64, skip google-chrome-* paths set via CHROME_BIN: there is no
-    // official Google Chrome arm64 Linux package and any file found there is
-    // most likely a non-functional stub or a broken symlink target.
-    if (isArm64 && /google-chrome/.test(bin)) {
-      console.warn(
-        `arm64 detected – ignoring CHROME_BIN "${bin}" (no official Google Chrome arm64 build). ` +
-        'Falling back to Chromium candidate paths.'
-      );
-    } else {
-      try {
-        if (isExecutable(bin)) return bin;
-        console.warn(`CHROME_BIN is set to "${bin}" but no executable was found there – falling back to candidate paths.`);
-      } catch (err) {
-        console.warn(`Could not check CHROME_BIN path "${bin}": ${err.message} – falling back to candidate paths.`);
-      }
-    }
-  }
-
-  // On arm64 Chromium paths are listed first; on amd64 Google Chrome is tried
-  // first (preferred when both are installed).
-  const candidates = isArm64
-    ? [
-        // Linux arm64 – Chromium
-        '/usr/bin/chromium',
-        '/usr/bin/chromium-browser',
-        '/usr/local/bin/chromium',
-        '/snap/bin/chromium',
-        // macOS Apple Silicon
-        '/Applications/Chromium.app/Contents/MacOS/Chromium',
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      ]
-    : [
-        // Linux amd64 – Google Chrome
-        '/usr/bin/google-chrome-stable',
-        '/usr/bin/google-chrome',
-        '/usr/bin/google-chrome-unstable',
-        // Linux amd64 – Chromium fallback
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chromium',
-        '/usr/local/bin/chromium',
-        '/snap/bin/chromium',
-        // macOS Intel
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        '/Applications/Chromium.app/Contents/MacOS/Chromium',
-      ];
-
-  for (const p of candidates) {
-    try {
-      if (isExecutable(p)) return p;
-    } catch { /* ignore */ }
-  }
-
-  // Last resort: ask the shell where chromium lives (covers non-standard
-  // install prefixes such as Homebrew on macOS or custom Linux setups).
-  for (const cmd of CHROMIUM_COMMAND_NAMES) {
-    const p = which(cmd);
-    if (p && isExecutable(p)) return p;
-  }
-
-  return null;
-}
 
 // How long (ms) to wait for a .m3u8 request to appear after page load
 const BROWSER_FETCH_TIMEOUT_MS = 30_000;
@@ -174,50 +60,32 @@ class StreamManager {
   // ── Public API ────────────────────────────────────────────────────────────
 
   /**
-   * Launch a headless browser, load the Sky TG24 diretta page, and intercept
-   * the first outgoing network request for a .m3u8 HLS stream.  The player
-   * only initialises after all JS / plugins have run, so a plain HTTP fetch of
-   * the page source is not sufficient – we need to execute the page fully.
+   * Launch a headless Firefox browser, load the Sky TG24 diretta page, and
+   * intercept the first outgoing network request for a .m3u8 HLS stream.  The
+   * player only initialises after all JS / plugins have run, so a plain HTTP
+   * fetch of the page source is not sufficient – we need to execute the page
+   * fully.
    */
   async fetchSkyUrl() {
-    // Detect lazily on every call so changes to the filesystem (e.g. Chrome
-    // being installed after the server started) are picked up automatically.
-    const chromeBin = detectChromePath();
-    if (!chromeBin) {
-      throw new Error(
-        'No Chrome or Chromium executable was found. ' +
-        'Install Google Chrome / Chromium, or set the CHROME_BIN environment variable ' +
-        'to the full path of the browser executable.'
-      );
-    }
-
     let browser;
     try {
       try {
-        browser = await puppeteer.launch({
-          executablePath: chromeBin,
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--mute-audio',
-          ],
-        });
+        browser = await firefox.launch({ headless: true });
       } catch (launchErr) {
         throw new Error(
-          `Failed to launch browser at "${chromeBin}": ${launchErr.message}. ` +
-          'Install Google Chrome / Chromium, or set the CHROME_BIN environment variable ' +
-          'to the full path of the browser executable.'
+          `Failed to launch Firefox: ${launchErr.message}. ` +
+          'Make sure the Playwright Firefox browser is installed ' +
+          '(run: npx playwright install firefox).'
         );
       }
 
-      const page = await browser.newPage();
-      await page.setUserAgent(FETCH_HEADERS['User-Agent']);
-      await page.setExtraHTTPHeaders({
-        'Accept-Language': FETCH_HEADERS['Accept-Language'],
+      const context = await browser.newContext({
+        userAgent: FETCH_HEADERS['User-Agent'],
+        extraHTTPHeaders: {
+          'Accept-Language': FETCH_HEADERS['Accept-Language'],
+        },
       });
+      const page = await context.newPage();
 
       // Resolve as soon as the first .m3u8 URL is seen in any outgoing request;
       // remove the listener immediately to avoid redundant calls.
