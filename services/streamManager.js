@@ -11,43 +11,111 @@ const SKY_PAGE_URL = 'https://tg24.sky.it/diretta';
 const PROXY_HOST   = process.env.PROXY_HOST || 'localhost';
 
 /**
+ * Return true when *filePath* exists and is executable by the current process.
+ * Using access(X_OK) avoids false-positives from stub wrapper scripts that
+ * exist on the filesystem but are not real browser binaries (common on arm64
+ * where Google Chrome has no official build).
+ */
+function isExecutable(filePath) {
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Try to resolve *cmd* via the shell's PATH using `which`.
+ * Returns the full path string, or null on failure.
+ */
+function which(cmd) {
+  try {
+    const { execFileSync } = require('child_process');
+    const result = execFileSync('which', [cmd], { encoding: 'utf8', timeout: 3000 }).trim();
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+
+// Browser command names tried as a last-resort PATH lookup.
+const CHROMIUM_COMMAND_NAMES = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable'];
+
+/**
  * Resolve the path to a Chrome or Chromium executable.
  *
  * Priority:
  *  1. CHROME_BIN environment variable (explicit override).
- *  2. First candidate path that exists on the filesystem.
+ *  2. Ordered candidate paths – on arm64 Chromium paths come first because
+ *     Google Chrome has no official arm64 Linux build; stubs at the
+ *     google-chrome-stable path would exist but fail at runtime.
+ *  3. Shell PATH lookup via `which` for common Chromium command names.
  *
  * Returns the resolved path, or null when nothing is found.
  */
 function detectChromePath() {
+  const isArm64 = process.arch === 'arm64';
+
   if (process.env.CHROME_BIN) {
-    try {
-      if (fs.existsSync(process.env.CHROME_BIN)) return process.env.CHROME_BIN;
-      console.warn(`CHROME_BIN is set to "${process.env.CHROME_BIN}" but no file was found there – falling back to candidate paths.`);
-    } catch (err) {
-      console.warn(`Could not check CHROME_BIN path "${process.env.CHROME_BIN}": ${err.message} – falling back to candidate paths.`);
+    const bin = process.env.CHROME_BIN;
+    // On arm64, skip google-chrome-* paths set via CHROME_BIN: there is no
+    // official Google Chrome arm64 Linux package and any file found there is
+    // most likely a non-functional stub or a broken symlink target.
+    if (isArm64 && /google-chrome/.test(bin)) {
+      console.warn(
+        `arm64 detected – ignoring CHROME_BIN "${bin}" (no official Google Chrome arm64 build). ` +
+        'Falling back to Chromium candidate paths.'
+      );
+    } else {
+      try {
+        if (isExecutable(bin)) return bin;
+        console.warn(`CHROME_BIN is set to "${bin}" but no executable was found there – falling back to candidate paths.`);
+      } catch (err) {
+        console.warn(`Could not check CHROME_BIN path "${bin}": ${err.message} – falling back to candidate paths.`);
+      }
     }
   }
 
-  const candidates = [
-    // Linux - Google Chrome (stable / unstable / beta)
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-unstable',
-    // Linux - Chromium
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-    '/usr/local/bin/chromium',
-    '/snap/bin/chromium',
-    // macOS
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  ];
+  // On arm64 Chromium paths are listed first; on amd64 Google Chrome is tried
+  // first (preferred when both are installed).
+  const candidates = isArm64
+    ? [
+        // Linux arm64 – Chromium
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/usr/local/bin/chromium',
+        '/snap/bin/chromium',
+        // macOS Apple Silicon
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      ]
+    : [
+        // Linux amd64 – Google Chrome
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-unstable',
+        // Linux amd64 – Chromium fallback
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        '/usr/local/bin/chromium',
+        '/snap/bin/chromium',
+        // macOS Intel
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      ];
 
   for (const p of candidates) {
     try {
-      if (fs.existsSync(p)) return p;
+      if (isExecutable(p)) return p;
     } catch { /* ignore */ }
+  }
+
+  // Last resort: ask the shell where chromium lives (covers non-standard
+  // install prefixes such as Homebrew on macOS or custom Linux setups).
+  for (const cmd of CHROMIUM_COMMAND_NAMES) {
+    const p = which(cmd);
+    if (p && isExecutable(p)) return p;
   }
 
   return null;
