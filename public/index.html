@@ -418,6 +418,10 @@
 <script>
 'use strict';
 
+// ── Auto-detect configuration ─────────────────────────────────────────────────
+const FETCH_MAX_ATTEMPTS  = 10;
+const FETCH_RETRY_DELAY_MS = 5000;
+
 // ── Chart ────────────────────────────────────────────────────────────────────
 const MAX_PTS = 60;
 const txData  = Array(MAX_PTS).fill(0);
@@ -620,31 +624,53 @@ async function disconnectVPN() {
 async function fetchURL() {
   const btn = document.getElementById('btn-fetch');
   btn.disabled = true;
-  setMsg('stream-msg', '⏳ Fetching live URL from tg24.sky.it…', 'var(--yellow)');
-  try {
-    const r = await post('/api/stream/fetch-url', {});
-    if (r.url) {
-      document.getElementById('stream-url').value          = r.url;
-      document.getElementById('detected-url').textContent  = r.url;
-      document.getElementById('detected-url').style.color  = 'var(--blue)';
-      post('/api/settings', { streamUrl: r.url }).catch(() => {});
-      setMsg('stream-msg', '✓ URL fetched successfully', 'var(--green)');
-      log(`Stream URL: ${r.url}`, 'ok');
-    } else {
-      const err = r.error || 'Unknown error';
-      setMsg('stream-msg', `✗ ${err}`, 'var(--red)');
-      log(`Fetch failed: ${err}`, 'err');
-      const fb = document.getElementById('stream-fallback').value.trim();
-      if (fb) {
-        document.getElementById('stream-url').value = fb;
-        log('Using fallback URL', 'warn');
+
+  let lastErr = '';
+  for (let attempt = 1; attempt <= FETCH_MAX_ATTEMPTS; attempt++) {
+    setMsg('stream-msg', `⏳ Auto-detecting URL… (attempt ${attempt}/${FETCH_MAX_ATTEMPTS})`, 'var(--yellow)');
+    log(`Auto-detect attempt ${attempt}/${FETCH_MAX_ATTEMPTS} – fetching from tg24.sky.it…`, 'info');
+    try {
+      const r = await post('/api/stream/fetch-url', {});
+      if (r.url && r.url.includes('master.m3u8')) {
+        document.getElementById('stream-url').value          = r.url;
+        document.getElementById('detected-url').textContent  = r.url;
+        document.getElementById('detected-url').style.color  = 'var(--blue)';
+        post('/api/settings', { streamUrl: r.url }).catch(() => {});
+        setMsg('stream-msg', '✓ URL detected successfully', 'var(--green)');
+        log(`Stream URL detected: ${r.url}`, 'ok');
+        btn.disabled = false;
+        return;
       }
+      // Got a response but the URL does not contain master.m3u8
+      let reason;
+      if (r.url) {
+        reason = `URL found but does not contain master.m3u8: ${r.url}`;
+      } else {
+        reason = r.error || 'No URL returned';
+      }
+      lastErr = reason;
+      log(`Attempt ${attempt}/${FETCH_MAX_ATTEMPTS} failed – ${reason}`, 'err');
+    } catch (e) {
+      lastErr = e.message;
+      log(`Attempt ${attempt}/${FETCH_MAX_ATTEMPTS} error – ${e.message}`, 'err');
     }
-  } catch (e) {
-    setMsg('stream-msg', `✗ ${e.message}`, 'var(--red)');
-  } finally {
-    btn.disabled = false;
+
+    if (attempt < FETCH_MAX_ATTEMPTS) {
+      log(`Retrying in ${FETCH_RETRY_DELAY_MS / 1000}s…`, 'info');
+      setMsg('stream-msg', `⏳ Retrying in ${FETCH_RETRY_DELAY_MS / 1000}s… (attempt ${attempt}/${FETCH_MAX_ATTEMPTS} failed)`, 'var(--yellow)');
+      await new Promise(resolve => setTimeout(resolve, FETCH_RETRY_DELAY_MS));
+    }
   }
+
+  // All attempts exhausted
+  setMsg('stream-msg', `✗ Could not detect master.m3u8 after ${FETCH_MAX_ATTEMPTS} attempts`, 'var(--red)');
+  log(`Auto-detect failed after ${FETCH_MAX_ATTEMPTS} attempts. Last error: ${lastErr}`, 'err');
+  const fb = document.getElementById('stream-fallback').value.trim();
+  if (fb) {
+    document.getElementById('stream-url').value = fb;
+    log('Using fallback URL', 'warn');
+  }
+  btn.disabled = false;
 }
 
 async function startStream() {
