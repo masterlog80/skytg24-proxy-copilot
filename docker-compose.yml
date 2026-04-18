@@ -33,3 +33,4 @@ services:
       - PROXY_HOST=localhost
       # Override the directory where .ovpn files are read from
       - VPN_CONFIG_DIR=/config/vpn
+      - PROXY_HOST=192.168.10.245
