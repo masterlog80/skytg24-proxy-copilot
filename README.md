@@ -69,6 +69,7 @@ docker build -t skytg24-proxy-copilot .
 # Copy your .ovpn files into config/vpn/
 cp ~/milan-duomo.ovpn     config/vpn/
 cp ~/milan-galleria.ovpn  config/vpn/
+cp ~/settings.json config/
 
 # (Optional) restore a previous settings file
 # cp ~/settings.json config/
