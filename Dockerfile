@@ -51,10 +51,13 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then \
         | gpg --dearmor -o /usr/share/keyrings/debian-bookworm-archive-keyring.gpg \
       && printf 'deb [arch=arm64 signed-by=/usr/share/keyrings/debian-bookworm-archive-keyring.gpg] http://deb.debian.org/debian bookworm main\n' \
           > /etc/apt/sources.list.d/debian-bookworm.list \
+      && printf 'Package: chromium*\nPin: release n=bookworm\nPin-Priority: 1001\n' \
+          > /etc/apt/preferences.d/chromium-bookworm \
       && apt-get update \
-      && apt-get install -y --no-install-recommends -t bookworm chromium \
+      && apt-get install -y --no-install-recommends chromium \
       && rm /etc/apt/sources.list.d/debian-bookworm.list \
       && rm /usr/share/keyrings/debian-bookworm-archive-keyring.gpg \
+      && rm /etc/apt/preferences.d/chromium-bookworm \
       && apt-get update \
       && ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable; \
     else \
