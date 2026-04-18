@@ -112,7 +112,29 @@ class StreamManager {
         }
       };
       const onRequest  = (request)  => handleUrl(request.url());
-      const onResponse = (response) => handleUrl(response.url());
+      // Also scan JSON response bodies: the stream URL (e.g. master.m3u8) is
+      // often embedded inside the payload of an API call (e.g. getLivestream)
+      // rather than being a separate network request, so checking response.url()
+      // alone is not enough.
+      const onResponse = async (response) => {
+        handleUrl(response.url());
+        const ct = (response.headers()['content-type'] || '').toLowerCase();
+        if (ct.includes('application/json') || ct.includes('text/javascript')) {
+          try {
+            const text = await response.text();
+            // Extract all absolute URLs from the response body and pass each
+            // to handleUrl; stop at characters that cannot appear in a URL
+            // but are common JSON delimiters (quotes, braces, brackets, commas).
+            const urlMatches = text.match(/https?:\/\/[^\s"'\\,{}\[\]]+/g) || [];
+            for (const u of urlMatches) {
+              handleUrl(u);
+            }
+          } catch (err) {
+            // Body read failed – log at debug level so production noise is low
+            console.debug('[StreamManager] Could not read response body from', response.url(), '–', err.message);
+          }
+        }
+      };
       page.on('request', onRequest);
       page.on('response', onResponse);
 
