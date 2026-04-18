@@ -593,6 +593,7 @@ async function fetchURL() {
       document.getElementById('stream-url').value          = r.url;
       document.getElementById('detected-url').textContent  = r.url;
       document.getElementById('detected-url').style.color  = 'var(--blue)';
+      post('/api/settings', { streamUrl: r.url }).catch(() => {});
       setMsg('stream-msg', '✓ URL fetched successfully', 'var(--green)');
       log(`Stream URL: ${r.url}`, 'ok');
     } else {
@@ -665,7 +666,50 @@ async function loadConfigs() {
       `<option value="">Error loading configs: ${e.message}</option>`;
   }
 }
-loadConfigs();
+
+// ── Settings persistence ──────────────────────────────────────────────────────
+let _saveTimer = null;
+
+/** Debounce-save the given key/value pair to the server */
+function scheduleSave(key, value) {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => post('/api/settings', { [key]: value }).catch(() => {}), 400);
+}
+
+/** Load persisted settings and apply them to the form */
+async function loadSettings() {
+  try {
+    const s = await (await fetch('/api/settings')).json();
+    if (s.streamPort)        document.getElementById('stream-port').value     = s.streamPort;
+    if (s.streamUrl)         document.getElementById('stream-url').value      = s.streamUrl;
+    if (s.streamFallbackUrl) document.getElementById('stream-fallback').value = s.streamFallbackUrl;
+    if (s.vpnUsername)       document.getElementById('vpn-user').value        = s.vpnUsername;
+    return s;
+  } catch { return {}; }
+}
+
+/** Load configs and settings in parallel, then restore the saved endpoint */
+async function init() {
+  const [, settings] = await Promise.all([loadConfigs(), loadSettings()]);
+  if (settings.vpnEndpoint) {
+    const sel = document.getElementById('vpn-endpoint');
+    const opt = Array.from(sel.options).find(o => o.value === settings.vpnEndpoint);
+    if (opt) sel.value = settings.vpnEndpoint;
+  }
+}
+init();
+
+// Wire up auto-save listeners for all persisted fields
+document.getElementById('vpn-endpoint').addEventListener('change',
+  e => scheduleSave('vpnEndpoint', e.target.value));
+document.getElementById('vpn-user').addEventListener('input',
+  e => scheduleSave('vpnUsername', e.target.value));
+document.getElementById('stream-port').addEventListener('input',
+  e => { const p = parseInt(e.target.value, 10); if (!isNaN(p)) scheduleSave('streamPort', p); });
+document.getElementById('stream-url').addEventListener('input',
+  e => scheduleSave('streamUrl', e.target.value));
+document.getElementById('stream-fallback').addEventListener('input',
+  e => scheduleSave('streamFallbackUrl', e.target.value));
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 async function post(url, body) {
