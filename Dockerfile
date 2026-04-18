@@ -12,7 +12,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # ── System packages ───────────────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update
+
+RUN apt-get install -y --no-install-recommends \
         openvpn \
         curl \
         gnupg \
@@ -35,16 +37,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxcomposite1 \
         libxdamage1 \
         libxrandr2 \
-        xdg-utils \
-    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
-         | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] \
+        xdg-utils
+
+# ── Google Chrome ─────────────────────────────────────────────────────────────
+RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+         | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+
+RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] \
          http://dl.google.com/linux/chrome/deb/ stable main" \
-         > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+         > /etc/apt/sources.list.d/google-chrome.list
+
+RUN apt-get update
+
+RUN apt-get install -y --no-install-recommends google-chrome-stable
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+
+RUN apt-get install -y --no-install-recommends nodejs
+
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ── App ───────────────────────────────────────────────────────────────────────
 WORKDIR /app
