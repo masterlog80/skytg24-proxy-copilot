@@ -336,7 +336,7 @@ class StreamManager {
     app.get('/proxy', async (req, res) => {
       if (!req.query.url) return res.status(400).send('Missing url param');
       let target;
-      try { target = Buffer.from(req.query.url, 'base64').toString('utf8'); }
+      try { target = Buffer.from(req.query.url, 'base64url').toString('utf8'); }
       catch { return res.status(400).send('Bad url encoding'); }
 
       if (!/^https?:\/\//i.test(target)) {
@@ -446,6 +446,11 @@ class StreamManager {
 
     if (isPlaylist) {
       const body = await upstream.text();
+      if (!upstream.ok) {
+        // Forward upstream error status so hls.js receives a proper HTTP error
+        // rather than a 200 with invalid content that causes a silent parse failure.
+        return res.status(upstream.status).send(body);
+      }
       // Use the Host header from the incoming request so that rewritten segment
       // URLs point back to whichever address/port the client used to reach us.
       // Validate the header to ensure the port matches our known proxy port and
@@ -513,7 +518,7 @@ class StreamManager {
       } else {
         abs = dir + uri;
       }
-      return `${proxyBase}${Buffer.from(abs).toString('base64')}`;
+      return `${proxyBase}${Buffer.from(abs).toString('base64url')}`;
     };
 
     return content
