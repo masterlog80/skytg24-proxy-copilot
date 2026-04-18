@@ -39,7 +39,7 @@ RUN apt-get install -y --no-install-recommends \
         xdg-utils
 
 # ── Browser ───────────────────────────────────────────────────────────────────
-# Firefox is installed via Playwright's bundled browser mechanism after npm install.
+# Chrome is installed via Playwright's bundled browser mechanism after npm install.
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -53,7 +53,7 @@ WORKDIR /app
 
 COPY package*.json ./
 RUN npm install --omit=dev
-RUN npx playwright install --with-deps firefox
+RUN npx playwright install --with-deps chromium
 
 COPY server.js          ./
 COPY services/          ./services/
