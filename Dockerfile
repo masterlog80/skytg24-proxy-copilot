@@ -9,7 +9,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CONTROL_PORT=3000 \
     PROXY_HOST=localhost \
     VPN_CONFIG_DIR=/config/vpn \
-    CHROME_BIN=/usr/bin/google-chrome-stable \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # ── System packages ───────────────────────────────────────────────────────────
@@ -44,8 +43,8 @@ RUN apt-get install -y --no-install-recommends \
 # Google Chrome does not publish arm64 Linux packages.  On arm64 we install
 # Chromium from the Debian Bookworm archive instead (Ubuntu 24.04 ships
 # Chromium as a snap only, which cannot run inside a Docker container).
-# A symlink makes /usr/bin/google-chrome-stable resolve on both architectures
-# so the CHROME_BIN env-var works unchanged.
+# The application's detectChromePath() handles arch-aware binary discovery at
+# runtime, so no CHROME_BIN env-var is set here.
 RUN if [ "${TARGETARCH}" = "arm64" ]; then \
       curl -fsSL https://ftp-master.debian.org/keys/archive-key-12.asc \
         | gpg --dearmor -o /usr/share/keyrings/debian-bookworm-archive-keyring.gpg \
@@ -58,8 +57,7 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then \
       && rm /etc/apt/sources.list.d/debian-bookworm.list \
       && rm /usr/share/keyrings/debian-bookworm-archive-keyring.gpg \
       && rm /etc/apt/preferences.d/chromium-bookworm \
-      && apt-get update \
-      && ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable; \
+      && apt-get update; \
     else \
       curl -fsSL -o /tmp/google-chrome-stable.deb \
            https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
