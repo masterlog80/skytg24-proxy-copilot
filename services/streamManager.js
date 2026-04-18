@@ -9,8 +9,12 @@ const { URL }    = require('url');
 const SKY_PAGE_URL = 'https://tg24.sky.it/diretta';
 const PROXY_HOST   = process.env.PROXY_HOST || 'localhost';
 
-// How long (ms) to wait for a .m3u8 request to appear after page load
-const BROWSER_FETCH_TIMEOUT_MS = 30_000;
+// How long (ms) to wait for the page to load (goto timeout)
+const PAGE_LOAD_TIMEOUT_MS = 30_000;
+// How long (ms) to wait for a master.m3u8 request to appear after page load
+const BROWSER_FETCH_TIMEOUT_MS = 60_000;
+// How long (ms) to wait when probing consent / play buttons
+const ELEMENT_INTERACTION_TIMEOUT_MS = 2_000;
 
 // Allowlist of hostname suffixes the HLS proxy is permitted to fetch from.
 // This prevents the /proxy endpoint from being used as an open SSRF relay.
@@ -87,29 +91,89 @@ class StreamManager {
       });
       const page = await context.newPage();
 
-      // Resolve as soon as the first .m3u8 URL is seen in any outgoing request;
-      // remove the listener immediately to avoid redundant calls.
+      // Resolve immediately on master.m3u8; record any other .m3u8 as a
+      // fallback in case master.m3u8 never appears.
       let resolveM3u8;
+      let fallbackUrl = null;
       const m3u8Promise = new Promise((resolve) => { resolveM3u8 = resolve; });
 
-      const onRequest = (request) => {
-        const url = request.url();
-        if (url.includes('.m3u8')) {
-          page.off('request', onRequest);
+      const handleUrl = (url) => {
+        if (url.includes('master.m3u8')) {
           resolveM3u8(url);
+        } else if (url.includes('.m3u8') && !fallbackUrl) {
+          fallbackUrl = url;
         }
       };
+      const onRequest  = (request)  => handleUrl(request.url());
+      const onResponse = (response) => handleUrl(response.url());
       page.on('request', onRequest);
+      page.on('response', onResponse);
 
-      await page.goto(SKY_PAGE_URL, { waitUntil: 'domcontentloaded', timeout: BROWSER_FETCH_TIMEOUT_MS });
+      // Navigate and wait for the full page (all scripts) to load.
+      await page.goto(SKY_PAGE_URL, { waitUntil: 'load', timeout: PAGE_LOAD_TIMEOUT_MS });
 
+      // Dismiss cookie / GDPR consent banners so they don't block the player.
+      const consentSelectors = [
+        // OneTrust / Didomi / generic accept buttons
+        '#onetrust-accept-btn-handler',
+        '.didomi-continue-without-agreeing',
+        '[aria-label*="Accept"]',
+        '[aria-label*="Accetta"]',
+        'button[class*="accept"]',
+        'button[class*="agree"]',
+        'button[class*="consent"]',
+      ];
+      for (const sel of consentSelectors) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: ELEMENT_INTERACTION_TIMEOUT_MS })) {
+            await btn.click({ timeout: ELEMENT_INTERACTION_TIMEOUT_MS });
+            break;
+          }
+        } catch (err) {
+          // Element not present or timed out – try the next selector
+          if (err.name !== 'TimeoutError') throw err;
+        }
+      }
+
+      // Attempt to click any visible play button to trigger HLS initialisation.
+      const playSelectors = [
+        'button[aria-label*="play" i]',
+        'button[aria-label*="riproduci" i]',
+        '.vjs-big-play-button',
+        '.play-button',
+        '[class*="PlayButton"]',
+        '[class*="play-btn"]',
+      ];
+      for (const sel of playSelectors) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: ELEMENT_INTERACTION_TIMEOUT_MS })) {
+            await btn.click({ timeout: ELEMENT_INTERACTION_TIMEOUT_MS });
+            break;
+          }
+        } catch (err) {
+          // Element not present or timed out – try the next selector
+          if (err.name !== 'TimeoutError') throw err;
+        }
+      }
+
+      // After the page has loaded and the player has been nudged, wait up to
+      // BROWSER_FETCH_TIMEOUT_MS for the HLS manifest request to appear.
+      // If master.m3u8 never arrives but a generic .m3u8 was captured, use that.
       let timeoutId;
       const timeoutPromise = new Promise((_, reject) => {
         timeoutId = setTimeout(
-          () => reject(new Error(
-            'Stream URL not found. Make sure the VPN is connected to an Italian server, ' +
-            'then try again, or enter the URL manually.'
-          )),
+          () => {
+            if (fallbackUrl) {
+              resolveM3u8(fallbackUrl);
+            } else {
+              reject(new Error(
+                'Stream URL not found. Make sure the VPN is connected to an Italian server, ' +
+                'then try again, or enter the URL manually.'
+              ));
+            }
+          },
           BROWSER_FETCH_TIMEOUT_MS,
         );
       });
@@ -118,6 +182,8 @@ class StreamManager {
         return await Promise.race([m3u8Promise, timeoutPromise]);
       } finally {
         clearTimeout(timeoutId);
+        page.off('request', onRequest);
+        page.off('response', onResponse);
       }
     } finally {
       if (browser) await browser.close().catch(() => {});
