@@ -97,6 +97,11 @@ class VPNManager extends EventEmitter {
         '--log',            LOG_FILE,
         '--writepid',       PID_FILE,
         '--verb',           '3',
+        // Prevent the VPN server from replacing the container's default route
+        // with one pointing to tun0.  Without this, all outbound traffic
+        // (including HTTP/WebSocket responses back to the browser) is sent
+        // through the tunnel, making the control-plane UI unreachable.
+        '--pull-filter',    'ignore', 'redirect-gateway',
       ], { stdio: 'pipe' });
 
       this._proc = proc;
