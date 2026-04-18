@@ -20,7 +20,14 @@ const PROXY_HOST   = process.env.PROXY_HOST || 'localhost';
  * Returns the resolved path, or null when nothing is found.
  */
 function detectChromePath() {
-  if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
+  if (process.env.CHROME_BIN) {
+    try {
+      if (fs.existsSync(process.env.CHROME_BIN)) return process.env.CHROME_BIN;
+      console.warn(`CHROME_BIN is set to "${process.env.CHROME_BIN}" but no file was found there – falling back to candidate paths.`);
+    } catch (err) {
+      console.warn(`Could not check CHROME_BIN path "${process.env.CHROME_BIN}": ${err.message} – falling back to candidate paths.`);
+    }
+  }
 
   const candidates = [
     // Linux - Google Chrome (stable / unstable / beta)
