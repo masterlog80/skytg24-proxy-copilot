@@ -72,7 +72,7 @@
     }
     .chips-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      grid-template-columns: repeat(6, 1fr);
       gap: 12px;
     }
     @media (max-width: 900px) {
@@ -354,28 +354,27 @@
 
     <!-- Status chips -->
     <div class="chips-grid">
-      <div class="chip">
+      <div class="chip" style="grid-column:span 2">
         <div class="chip-lbl">VPN Status</div>
         <div class="chip-val" id="chip-vpn-val" style="color:var(--txt2)">—</div>
         <div class="chip-lbl mt-1" id="chip-vpn-ip">—</div>
       </div>
-      <div class="chip">
+      <div class="chip" style="grid-column:span 2">
         <div class="chip-lbl">Stream</div>
         <div class="chip-val" id="chip-stream-val" style="color:var(--txt2)">Inactive</div>
         <div class="chip-lbl mt-1" id="chip-stream-port">—</div>
       </div>
-      <div class="chip">
+      <div class="chip" style="grid-column:span 2">
         <div class="chip-lbl">Clients</div>
         <div class="chip-val" id="chip-clients" style="color:var(--blue)">0</div>
         <div class="chip-lbl mt-1">Local viewers</div>
       </div>
-      <div style="grid-column:1/-1;height:0;margin:0;padding:0;"></div>
-      <div class="chip">
+      <div class="chip" style="grid-column:span 3">
         <div class="chip-lbl">Resolution</div>
         <div class="chip-val text-lg" id="chip-resolution" style="color:var(--txt2)">—</div>
         <div class="chip-lbl mt-1">pixels</div>
       </div>
-      <div class="chip">
+      <div class="chip" style="grid-column:span 3">
         <div class="chip-lbl">Frame Rate</div>
         <div class="chip-val" id="chip-fps" style="color:var(--txt2)">—</div>
         <div class="chip-lbl mt-1">fps</div>
