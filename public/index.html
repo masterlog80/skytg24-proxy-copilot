@@ -359,10 +359,15 @@
 
         <!-- Local viewer URL (shown only when streaming) -->
         <div id="local-url-row" style="display:none">
-          <label>Local stream URL (open in VLC / browser)</label>
+          <label>M3U8 stream URL <span style="color:var(--txt2)">(VLC / media players)</span></label>
           <div class="url-box flex items-center gap-2">
             <span id="local-url-text"></span>
             <button class="btn btn-ghost btn-sm ml-auto" onclick="copyURL()" title="Copy to clipboard">⎘</button>
+          </div>
+          <label class="mt-2" style="display:block">Browser player</label>
+          <div class="url-box flex items-center gap-2 mt-1">
+            <span id="local-player-url-text"></span>
+            <a id="local-player-url-link" href="#" target="_blank" rel="noopener" class="btn btn-ghost btn-sm ml-auto" title="Open in browser">▶ Open</a>
           </div>
         </div>
 
@@ -574,11 +579,16 @@ function renderStream(st) {
     cv.textContent = 'ACTIVE';   cv.style.color = 'var(--green)';
     cp.textContent = `Port ${st.port}`;
     if (!msg.textContent.startsWith('✗')) {
-      msg.textContent = `✓ Proxying – http://localhost:${st.port}`;
+      msg.textContent = `✓ Proxying – http://${window.location.hostname}:${st.port}`;
       msg.style.color = 'var(--green)';
     }
     lrow.style.display = '';
-    document.getElementById('local-url-text').textContent = `http://localhost:${st.port}/stream`;
+    const host = window.location.hostname;
+    const streamUrl  = `http://${host}:${st.port}/stream`;
+    const playerUrl  = `http://${host}:${st.port}/player`;
+    document.getElementById('local-url-text').textContent        = streamUrl;
+    document.getElementById('local-player-url-text').textContent = playerUrl;
+    document.getElementById('local-player-url-link').href        = playerUrl;
   } else {
     cv.textContent = 'Inactive'; cv.style.color = 'var(--txt2)';
     cp.textContent = '—';

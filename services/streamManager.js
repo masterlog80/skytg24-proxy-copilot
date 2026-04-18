@@ -2,9 +2,20 @@
 
 const express    = require('express');
 const http       = require('http');
+const fs         = require('fs');
 const fetch      = require('node-fetch');
 const { chromium } = require('playwright');
 const { URL }    = require('url');
+
+// Bundled hls.js – read once at startup into memory to avoid per-request file I/O.
+// Fails fast with a clear error if the npm package is not installed.
+let HLS_JS_CONTENT;
+try {
+  const hlsJsPath = require.resolve('hls.js/dist/hls.min.js');
+  HLS_JS_CONTENT = fs.readFileSync(hlsJsPath, 'utf8');
+} catch (e) {
+  throw new Error(`hls.js not found. Run: npm install (${e.message})`);
+}
 
 const SKY_PAGE_URL = 'https://tg24.sky.it/diretta';
 const PROXY_HOST   = process.env.PROXY_HOST || 'localhost';
@@ -243,10 +254,76 @@ class StreamManager {
       next();
     });
 
-    // Root → master playlist
-    app.get('/', async (req, res) => {
-      try { await this._proxy(sourceUrl, req, res, port); }
-      catch (e) { res.status(502).send(e.message); }
+    // Serve bundled hls.js locally (no CDN dependency; content pre-loaded at startup)
+    app.get('/hls.min.js', (_req, res) => {
+      res.set('Content-Type', 'application/javascript; charset=utf-8');
+      res.set('Cache-Control', 'public, max-age=86400');
+      res.send(HLS_JS_CONTENT);
+    });
+
+    // Root / /player → browser player HTML (hls.js)
+    const playerHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sky TG24 Live</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: sans-serif; }
+    video { width: 100%; max-height: 100vh; }
+    #msg { color: #fff; font-size: 16px; padding: 16px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="msg">Loading player…</div>
+  <video id="video" controls autoplay muted playsinline style="display:none" aria-label="Sky TG24 Live Stream"></video>
+  <script src="/hls.min.js"></script>
+  <script>
+    const video = document.getElementById('video');
+    const msgEl = document.getElementById('msg');
+    const streamUrl = window.location.origin + '/stream';
+
+    function showError(text) {
+      msgEl.textContent = text;
+      msgEl.style.display = 'block';
+    }
+
+    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        msgEl.style.display = 'none';
+        video.style.display = '';
+        video.play().catch(function() {});
+      });
+      hls.on(Hls.Events.ERROR, function(_, data) {
+        if (data.fatal) {
+          showError('Stream error (' + data.type + '). Make sure the proxy is running and VPN is connected.');
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari native HLS
+      msgEl.style.display = 'none';
+      video.style.display = '';
+      video.src = streamUrl;
+      video.play().catch(function() {});
+    } else {
+      showError('HLS playback is not supported in this browser. Open the stream URL in VLC instead.');
+    }
+  </script>
+</body>
+</html>`;
+
+    app.get('/', (_req, res) => {
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      res.send(playerHtml);
+    });
+
+    app.get('/player', (_req, res) => {
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      res.send(playerHtml);
     });
 
     app.get('/stream', async (req, res) => {
