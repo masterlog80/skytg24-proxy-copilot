@@ -114,8 +114,8 @@ class VPNManager extends EventEmitter {
         '--redirect-gateway', 'def1',
         // Keep local RFC-1918 networks routed via the original gateway so that
         // LAN traffic (192.168.0.0/16 and 10.0.0.0/8) bypasses the tunnel.
-        '--route', '192.168.0.0', '255.255.0.0', 'net_gateway',
-        '--route', '10.0.0.0',   '255.0.0.0',   'net_gateway',
+        '--route', '192.168.0.0', '255.255.0.0', 'net_gateway',  // /16
+        '--route', '10.0.0.0',   '255.0.0.0',   'net_gateway',  // /8
         // Management-UI traffic (responses back to clients that connected via
         // the Docker bridge / eth0) is kept on eth0 by the policy-routing
         // rules set up in _setupPolicyRouting() once the tunnel is live.
@@ -150,6 +150,9 @@ class VPNManager extends EventEmitter {
             // Mark connected immediately; public IP is resolved asynchronously.
             this._setState({ status: 'connected', ip: null, connectedAt: new Date().toISOString() });
             settle(null);
+            // Parse the tunnel IP now (synchronously) as a fallback before the
+            // async public-IP request is dispatched.
+            const tunnelIp = this._parseAssignedIp(log);
             // Fetch the actual public exit IP (traffic now travels through the
             // VPN tunnel, so this reflects the VPN server's external address).
             this._fetchPublicIp()
@@ -158,7 +161,6 @@ class VPNManager extends EventEmitter {
               })
               .catch(() => {
                 // Fall back to the tunnel interface IP parsed from the log.
-                const tunnelIp = this._parseAssignedIp(log);
                 if (this._state.status === 'connected') this._setState({ ip: tunnelIp });
               });
           } else if (/AUTH_FAILED|auth-failure|incorrect password/i.test(log)) {
@@ -301,7 +303,7 @@ class VPNManager extends EventEmitter {
    */
   _fetchPublicIp() {
     return new Promise((resolve, reject) => {
-      const req = https.get('https://api.ipify.org?format=json', { timeout: 10000 }, (res) => {
+      const req = https.get('https://api.ipify.org?format=json', (res) => {
         let data = '';
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
@@ -312,8 +314,8 @@ class VPNManager extends EventEmitter {
           }
         });
       });
+      req.setTimeout(10000, () => { req.destroy(); reject(new Error('Public IP request timed out')); });
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Public IP request timed out')); });
     });
   }
 
