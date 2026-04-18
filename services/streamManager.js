@@ -497,26 +497,39 @@ class StreamManager {
   _rewritePlaylist(content, baseUrl, proxyHost) {
     const base      = new URL(baseUrl);
     const proxyBase = `http://${proxyHost}/proxy?url=`;
+    // Directory prefix of the base URL (everything up to and including the last '/').
+    const dir       = base.href.substring(0, base.href.lastIndexOf('/') + 1);
+
+    // Resolve a URI from the playlist (absolute or relative) into a fully
+    // proxied URL pointing back to our /proxy endpoint.
+    const resolveUri = (uri) => {
+      let abs;
+      if (/^https?:\/\//i.test(uri)) {
+        abs = uri;
+      } else if (uri.startsWith('//')) {
+        abs = `${base.protocol}${uri}`;
+      } else if (uri.startsWith('/')) {
+        abs = `${base.protocol}//${base.host}${uri}`;
+      } else {
+        abs = dir + uri;
+      }
+      return `${proxyBase}${Buffer.from(abs).toString('base64')}`;
+    };
 
     return content
       .split('\n')
       .map(line => {
         const t = line.trim();
-        if (!t || t.startsWith('#')) return line;
+        if (!t) return line;
 
-        let abs;
-        if (/^https?:\/\//i.test(t)) {
-          abs = t;
-        } else if (t.startsWith('//')) {
-          abs = `${base.protocol}${t}`;
-        } else if (t.startsWith('/')) {
-          abs = `${base.protocol}//${base.host}${t}`;
-        } else {
-          const dir = base.href.substring(0, base.href.lastIndexOf('/') + 1);
-          abs = dir + t;
+        if (t.startsWith('#')) {
+          // Rewrite URI="..." attributes inside tag lines (e.g. #EXT-X-MEDIA,
+          // #EXT-X-KEY, #EXT-X-I-FRAME-STREAM-INF) so that audio renditions,
+          // encryption keys and i-frame playlists are also fetched via the proxy.
+          return line.replace(/\bURI="([^"]+)"/g, (_match, uri) => `URI="${resolveUri(uri)}"`);
         }
 
-        return `${proxyBase}${Buffer.from(abs).toString('base64')}`;
+        return resolveUri(t);
       })
       .join('\n');
   }
