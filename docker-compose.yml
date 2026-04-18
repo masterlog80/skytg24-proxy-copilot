@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   skytg24-proxy:
     build: .
@@ -8,7 +6,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "3000:3000"   # Web UI / Control API
+      - "3080:3000"   # Web UI / Control API
       - "6443:6443"   # HLS stream proxy (default port)
 
     volumes:
