@@ -34,13 +34,15 @@ app.get('/api/vpn/status', (_req, res) => {
   res.json(vpnManager.getStatus());
 });
 
-app.post('/api/vpn/connect', async (req, res) => {
+app.post('/api/vpn/connect', (req, res) => {
   const { config, username, password } = req.body || {};
   if (!config || !username || !password) {
     return res.status(400).json({ error: 'config, username and password are required' });
   }
   try {
-    await vpnManager.connect(config, username, password);
+    // connect() validates synchronously and starts the VPN process in the
+    // background.  The UI tracks progress via WebSocket state updates.
+    vpnManager.connect(config, username, password);
     res.json({ message: 'VPN connection initiated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
