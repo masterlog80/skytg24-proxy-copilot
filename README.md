@@ -42,14 +42,12 @@ cd skytg24-proxy-copilot
 yes | docker image prune --all
 docker build -t skytg24-proxy-copilot .
 
-# Deploy the composer file:
-docker compose -f docker-compose.yml up -d --remove-orphans
-
 # copy your .ovpn files into config/vpn/
 cp ~/Downloads/milan-duomo.ovpn     config/vpn/
 cp ~/Downloads/milan-galleria.ovpn  config/vpn/
 
-docker compose up --build -d
+# Deploy the composer file:
+docker compose -f docker-compose.yml up -d --remove-orphans
 ```
 
 Open **http://localhost:3000** in your browser.
