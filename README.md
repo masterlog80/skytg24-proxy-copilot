@@ -45,6 +45,8 @@ docker build -t skytg24-proxy-copilot .
 # copy your .ovpn files into config/vpn/
 cp ~/milan-duomo.ovpn     config/vpn/
 cp ~/milan-galleria.ovpn  config/vpn/
+cp ~/settings.json config/
+
 
 # Deploy the composer file:
 docker compose -f docker-compose.yml up -d --remove-orphans
