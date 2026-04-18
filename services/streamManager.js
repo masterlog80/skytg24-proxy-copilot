@@ -208,8 +208,8 @@ class StreamManager {
       } catch (launchErr) {
         throw new Error(
           `Failed to launch browser at "${chromeBin}": ${launchErr.message}. ` +
-          'Make sure Google Chrome or Chromium is correctly installed, or set the ' +
-          'CHROME_BIN environment variable to the full path of the browser executable.'
+          'Install Google Chrome / Chromium, or set the CHROME_BIN environment variable ' +
+          'to the full path of the browser executable.'
         );
       }
 
