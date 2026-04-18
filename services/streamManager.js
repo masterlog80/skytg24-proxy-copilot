@@ -3,7 +3,7 @@
 const express    = require('express');
 const http       = require('http');
 const fetch      = require('node-fetch');
-const { firefox } = require('playwright');
+const { chromium } = require('playwright');
 const { URL }    = require('url');
 
 const SKY_PAGE_URL = 'https://tg24.sky.it/diretta';
@@ -64,7 +64,7 @@ class StreamManager {
   // ── Public API ────────────────────────────────────────────────────────────
 
   /**
-   * Launch a headless Firefox browser, load the Sky TG24 diretta page, and
+   * Launch a headless Chrome browser, load the Sky TG24 diretta page, and
    * intercept the first outgoing network request for a .m3u8 HLS stream.  The
    * player only initialises after all JS / plugins have run, so a plain HTTP
    * fetch of the page source is not sufficient – we need to execute the page
@@ -74,12 +74,12 @@ class StreamManager {
     let browser;
     try {
       try {
-        browser = await firefox.launch({ headless: true });
+        browser = await chromium.launch({ headless: true });
       } catch (launchErr) {
         throw new Error(
-          `Failed to launch Firefox: ${launchErr.message}. ` +
-          'Make sure the Playwright Firefox browser is installed ' +
-          '(run: npx playwright install firefox).'
+          `Failed to launch Chrome: ${launchErr.message}. ` +
+          'Make sure the Playwright Chromium browser is installed ' +
+          '(run: npx playwright install chromium).'
         );
       }
 
