@@ -97,11 +97,15 @@ class VPNManager extends EventEmitter {
         '--log',            LOG_FILE,
         '--writepid',       PID_FILE,
         '--verb',           '3',
-        // Prevent the VPN server from replacing the container's default route
-        // with one pointing to tun0.  Without this, all outbound traffic
-        // (including HTTP/WebSocket responses back to the browser) is sent
-        // through the tunnel, making the control-plane UI unreachable.
-        '--pull-filter',    'ignore', 'redirect-gateway',
+        // Allow the VPN server's redirect-gateway directive so that all
+        // outbound internet traffic (including Sky TG24 / CDN requests) is
+        // routed through the tunnel and exits with an Italian IP address.
+        //
+        // The control-plane UI remains reachable because Docker bridge
+        // traffic (172.17.0.0/16) is a directly-connected route on eth0
+        // with a longer prefix (/16) than the VPN's summary routes (/1),
+        // so Linux always prefers eth0 for that subnet — even after
+        // redirect-gateway rewrites the default route.
       ], { stdio: 'pipe' });
 
       this._proc = proc;
