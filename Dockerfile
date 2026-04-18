@@ -53,7 +53,7 @@ WORKDIR /app
 
 COPY package*.json ./
 RUN npm install --omit=dev
-RUN npx playwright install --with-deps firefox
+RUN npx playwright install --with-deps chromium
 
 COPY server.js          ./
 COPY services/          ./services/
