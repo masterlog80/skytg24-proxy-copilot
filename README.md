@@ -50,7 +50,7 @@ cp ~/milan-galleria.ovpn  config/vpn/
 docker compose -f docker-compose.yml up -d --remove-orphans
 ```
 
-Open **http://localhost:3000** in your browser.
+Open **http://localhost:3080** in your browser.
 
 ### 3 — Connect to VPN
 
