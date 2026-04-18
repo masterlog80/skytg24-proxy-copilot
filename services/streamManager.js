@@ -12,12 +12,14 @@ const PROXY_HOST   = process.env.PROXY_HOST || 'localhost';
 
 /**
  * Return true when *filePath* exists and is executable by the current process.
- * Using access(X_OK) avoids false-positives from stub wrapper scripts that
- * exist on the filesystem but are not real browser binaries (common on arm64
- * where Google Chrome has no official build).
+ * Uses fs.existsSync() as the primary check so that the result matches the
+ * validation Puppeteer itself performs (it throws "Browser was not found" when
+ * existsSync returns false).  A secondary accessSync(X_OK) call filters out
+ * paths that exist on the filesystem but are not executable.
  */
 function isExecutable(filePath) {
   try {
+    if (!fs.existsSync(filePath)) return false;
     fs.accessSync(filePath, fs.constants.X_OK);
     return true;
   } catch {
@@ -121,8 +123,6 @@ function detectChromePath() {
   return null;
 }
 
-const CHROME_BIN = detectChromePath();
-
 // How long (ms) to wait for a .m3u8 request to appear after page load
 const BROWSER_FETCH_TIMEOUT_MS = 30_000;
 
@@ -180,7 +180,10 @@ class StreamManager {
    * the page source is not sufficient – we need to execute the page fully.
    */
   async fetchSkyUrl() {
-    if (!CHROME_BIN) {
+    // Detect lazily on every call so changes to the filesystem (e.g. Chrome
+    // being installed after the server started) are picked up automatically.
+    const chromeBin = detectChromePath();
+    if (!chromeBin) {
       throw new Error(
         'No Chrome or Chromium executable was found. ' +
         'Install Google Chrome / Chromium, or set the CHROME_BIN environment variable ' +
@@ -190,17 +193,25 @@ class StreamManager {
 
     let browser;
     try {
-      browser = await puppeteer.launch({
-        executablePath: CHROME_BIN,
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--mute-audio',
-        ],
-      });
+      try {
+        browser = await puppeteer.launch({
+          executablePath: chromeBin,
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--mute-audio',
+          ],
+        });
+      } catch (launchErr) {
+        throw new Error(
+          `Failed to launch browser at "${chromeBin}": ${launchErr.message}. ` +
+          'Make sure Google Chrome or Chromium is correctly installed, or set the ' +
+          'CHROME_BIN environment variable to the full path of the browser executable.'
+        );
+      }
 
       const page = await browser.newPage();
       await page.setUserAgent(FETCH_HEADERS['User-Agent']);
