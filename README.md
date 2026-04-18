@@ -60,11 +60,11 @@ Repeat for each endpoint you want to use.
 ### 2 — Place the configs and start the container
 
 ```bash
-docker builder prune -a
 git clone https://github.com/masterlog80/skytg24-proxy-copilot.git
 cd skytg24-proxy-copilot
 
 # Build the image
+yes | docker image prune --all
 docker build -t skytg24-proxy-copilot .
 
 # Copy your .ovpn files into config/vpn/
