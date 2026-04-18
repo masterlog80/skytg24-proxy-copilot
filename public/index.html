@@ -312,24 +312,24 @@
 
         <div>
           <label>Target URL <span style="color:var(--txt2)">(page to load for stream detection)</span></label>
-          <input type="text" id="fetch-target-url" placeholder="https://tg24.sky.it/diretta" value="https://tg24.sky.it/diretta" />
+          <input type="text" id="fetch-target-url" placeholder="https://tg24.sky.it/diretta" />
         </div>
 
         <div class="flex gap-4 items-end">
           <div class="flex-1">
             <label>Characters to look for <span style="color:var(--txt2)">(in intercepted URLs)</span></label>
-            <input type="text" id="fetch-search-string" placeholder="master.m3u8" value="master.m3u8" />
+            <input type="text" id="fetch-search-string" placeholder="master.m3u8" />
           </div>
         </div>
 
         <div class="flex gap-4 items-end">
           <div>
             <label>Max attempts</label>
-            <input type="number" id="fetch-max-attempts" value="10" min="1" max="100" style="width:90px" />
+            <input type="number" id="fetch-max-attempts" min="1" max="100" style="width:90px" />
           </div>
           <div>
             <label>Delay between attempts (s)</label>
-            <input type="number" id="fetch-retry-delay" value="5" min="1" max="300" style="width:90px" />
+            <input type="number" id="fetch-retry-delay" min="1" max="300" style="width:90px" />
           </div>
         </div>
 
@@ -443,13 +443,15 @@
 
 // ── Auto-detect configuration ─────────────────────────────────────────────────
 // Defaults; actual values are read from the UI inputs at runtime.
+const DEFAULT_FETCH_TARGET_URL     = 'https://tg24.sky.it/diretta';
+const DEFAULT_FETCH_SEARCH_STRING  = 'master.m3u8';
 const DEFAULT_FETCH_MAX_ATTEMPTS   = 10;
 const DEFAULT_FETCH_RETRY_DELAY_S  = 5;
 
 /** Return current auto-detect settings from the UI inputs */
 function getFetchConfig() {
-  const targetUrl    = (document.getElementById('fetch-target-url').value    || '').trim() || 'https://tg24.sky.it/diretta';
-  const searchString = (document.getElementById('fetch-search-string').value || '').trim() || 'master.m3u8';
+  const targetUrl    = (document.getElementById('fetch-target-url').value    || '').trim() || DEFAULT_FETCH_TARGET_URL;
+  const searchString = (document.getElementById('fetch-search-string').value || '').trim() || DEFAULT_FETCH_SEARCH_STRING;
   const maxAttempts  = Math.max(1, parseInt(document.getElementById('fetch-max-attempts').value,  10) || DEFAULT_FETCH_MAX_ATTEMPTS);
   const retryDelaySec = Math.max(1, parseInt(document.getElementById('fetch-retry-delay').value, 10) || DEFAULT_FETCH_RETRY_DELAY_S);
   return { targetUrl, searchString, maxAttempts, retryDelayMs: retryDelaySec * 1000 };
@@ -806,6 +808,12 @@ async function loadSettings() {
 
 /** Load configs and settings in parallel, then restore the saved endpoint */
 async function init() {
+  // Populate fetch-config inputs from constants (single source of truth)
+  document.getElementById('fetch-target-url').value    = DEFAULT_FETCH_TARGET_URL;
+  document.getElementById('fetch-search-string').value = DEFAULT_FETCH_SEARCH_STRING;
+  document.getElementById('fetch-max-attempts').value  = DEFAULT_FETCH_MAX_ATTEMPTS;
+  document.getElementById('fetch-retry-delay').value   = DEFAULT_FETCH_RETRY_DELAY_S;
+
   const [, settings] = await Promise.all([loadConfigs(), loadSettings()]);
   if (settings.vpnEndpoint) {
     const sel = document.getElementById('vpn-endpoint');
