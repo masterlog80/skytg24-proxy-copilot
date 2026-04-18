@@ -1,5 +1,4 @@
 FROM ubuntu:24.04
-ARG TARGETARCH
 
 LABEL maintainer="skytg24-proxy-copilot" \
       description="Sky TG24 live-stream proxy with Windscribe VPN control UI"
@@ -9,7 +8,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CONTROL_PORT=3000 \
     PROXY_HOST=localhost \
     VPN_CONFIG_DIR=/config/vpn \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    CHROME_BIN=/usr/bin/chromium
 
 # ── System packages ───────────────────────────────────────────────────────────
 RUN apt-get update
@@ -40,30 +40,7 @@ RUN apt-get install -y --no-install-recommends \
         xdg-utils
 
 # ── Browser ───────────────────────────────────────────────────────────────────
-# Google Chrome does not publish arm64 Linux packages.  On arm64 we install
-# Chromium from the Debian Bookworm archive instead (Ubuntu 24.04 ships
-# Chromium as a snap only, which cannot run inside a Docker container).
-# The application's detectChromePath() handles arch-aware binary discovery at
-# runtime, so no CHROME_BIN env-var is set here.
-RUN if [ "${TARGETARCH}" = "arm64" ]; then \
-      curl -fsSL https://ftp-master.debian.org/keys/archive-key-12.asc \
-        | gpg --dearmor -o /usr/share/keyrings/debian-bookworm-archive-keyring.gpg \
-      && printf 'deb [arch=arm64 signed-by=/usr/share/keyrings/debian-bookworm-archive-keyring.gpg] http://deb.debian.org/debian bookworm main\n' \
-          > /etc/apt/sources.list.d/debian-bookworm.list \
-      && printf 'Package: chromium*\nPin: release n=bookworm\nPin-Priority: 1001\n' \
-          > /etc/apt/preferences.d/chromium-bookworm \
-      && apt-get update \
-      && apt-get install -y --no-install-recommends chromium \
-      && rm /etc/apt/sources.list.d/debian-bookworm.list \
-      && rm /usr/share/keyrings/debian-bookworm-archive-keyring.gpg \
-      && rm /etc/apt/preferences.d/chromium-bookworm \
-      && apt-get update; \
-    else \
-      curl -fsSL -o /tmp/google-chrome-stable.deb \
-           https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-      && dpkg -i /tmp/google-chrome-stable.deb; apt-get install -f -y \
-      && rm /tmp/google-chrome-stable.deb; \
-    fi
+RUN apt-get install -y --no-install-recommends chromium-browser
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
