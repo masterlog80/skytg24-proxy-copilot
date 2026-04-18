@@ -40,16 +40,12 @@ RUN apt-get install -y --no-install-recommends \
         xdg-utils
 
 # ── Google Chrome ─────────────────────────────────────────────────────────────
-RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
-         | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
-
-RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] \
-         http://dl.google.com/linux/chrome/deb/ stable main" \
-         > /etc/apt/sources.list.d/google-chrome.list
-
-RUN apt-get update
-
-RUN apt-get install -y --no-install-recommends google-chrome-stable
+# Download the .deb directly; then use apt-get install -f to pull in any
+# missing dependencies (e.g. libxss1 removed in Ubuntu 22.04+).
+RUN curl -fsSL -o /tmp/google-chrome-stable.deb \
+         https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && dpkg -i /tmp/google-chrome-stable.deb || apt-get install -y -f \
+    && rm /tmp/google-chrome-stable.deb
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
