@@ -9,12 +9,6 @@ A Docker image that provides a **modern web UI** to:
 
 ---
 
-## Screenshot
-
-![Sky TG24 VPN Proxy – control panel](https://github.com/user-attachments/assets/659f710f-3460-4deb-aa55-1d14541be499)
-
----
-
 ## Requirements
 
 | Requirement | Notes |
@@ -189,3 +183,11 @@ node server.js      # starts on port 3000
 ```
 
 No build step – the frontend is plain HTML/CSS/JS with Chart.js bundled in `public/chart.umd.min.js`.
+
+
+## Screenshot
+
+![Sky TG24 VPN Proxy – control panel](https://github.com/user-attachments/assets/659f710f-3460-4deb-aa55-1d14541be499)
+
+---
+
