@@ -71,15 +71,18 @@ class StreamManager {
     // page (e.g. JSON \/ for / or \u0026 for &, or the HTML entity &amp;).
     // Without this, the backslash in \/ stops the character class
     // [^\s"'<>\\\n] before reaching /master.m3u8, causing all patterns to fail.
+    // &amp; is decoded before \u0026 to prevent chained double-unescaping
+    // (e.g. \u0026amp; → &amp; → & would be incorrect).
     const normalized = html
       .replace(/\\\//g, '/')       // JSON \/ → /
-      .replace(/\\u0026/gi, '&')   // JSON \u0026 → &
-      .replace(/&amp;/g, '&');     // HTML entity → &
+      .replace(/&amp;/g, '&')      // HTML entity → & (must precede \u0026 decode)
+      .replace(/\\u0026/gi, '&');  // JSON \u0026 → &
 
     for (const pat of HLS_PATTERNS) {
       const m = normalized.match(pat);
       if (m) {
-        // Strip any residual escaped double-quotes that may wrap the URL
+        // Remove escaped double-quotes that JSON encoding may add around the URL.
+        // URL strings never legitimately contain \" so this is safe.
         return m[0].replace(/\\"/g, '');
       }
     }
