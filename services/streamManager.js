@@ -41,14 +41,20 @@ const FETCH_HEADERS = {
   'Referer':         'https://tg24.sky.it/',
 };
 
+// How often (ms) to re-fetch stream info (resolution / frame-rate) while active
+const STREAM_INFO_POLL_MS = 10_000;
+
 class StreamManager {
   constructor() {
-    this._server = null;
-    this._state  = {
+    this._server       = null;
+    this._pollInterval = null;
+    this._state        = {
       active:      false,
       port:        null,
       sourceUrl:   null,
       clientCount: 0,
+      resolution:  null,
+      frameRate:   null,
     };
   }
 
@@ -176,7 +182,10 @@ class StreamManager {
       const srv = http.createServer(app);
       srv.listen(port, '0.0.0.0', () => {
         this._server = srv;
-        this._state  = { active: true, port, sourceUrl, clientCount: 0 };
+        this._state  = { active: true, port, sourceUrl, clientCount: 0, resolution: null, frameRate: null };
+        // Fetch stream info immediately, then poll on an interval
+        this._fetchStreamInfo();
+        this._pollInterval = setInterval(() => this._fetchStreamInfo(), STREAM_INFO_POLL_MS);
         resolve();
       });
       srv.on('error', reject);
@@ -186,13 +195,15 @@ class StreamManager {
   /** Stop the HLS proxy */
   stopProxy() {
     return new Promise((resolve) => {
+      clearInterval(this._pollInterval);
+      this._pollInterval = null;
       if (!this._server) {
-        this._state = { active: false, port: null, sourceUrl: null, clientCount: 0 };
+        this._state = { active: false, port: null, sourceUrl: null, clientCount: 0, resolution: null, frameRate: null };
         return resolve();
       }
       this._server.close(() => {
         this._server = null;
-        this._state  = { active: false, port: null, sourceUrl: null, clientCount: 0 };
+        this._state  = { active: false, port: null, sourceUrl: null, clientCount: 0, resolution: null, frameRate: null };
         resolve();
       });
       // Force-close any lingering keep-alive connections
@@ -205,6 +216,45 @@ class StreamManager {
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Fetch the HLS master playlist and extract the resolution and frame-rate of
+   * the highest-bandwidth variant stream.  Silently ignored on any error so
+   * that normal proxy operation is never interrupted.
+   */
+  async _fetchStreamInfo() {
+    const url = this._state.sourceUrl;
+    if (!url) return;
+    try {
+      const resp = await fetch(url, { headers: FETCH_HEADERS, timeout: 10_000 });
+      if (!resp.ok) return;
+      const text = await resp.text();
+      const lines = text.split('\n');
+
+      let bestBandwidth = -1;
+      let bestResolution = null;
+      let bestFrameRate  = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line.startsWith('#EXT-X-STREAM-INF:')) continue;
+
+        const bwMatch  = line.match(/BANDWIDTH=(\d+)/i);
+        const resMatch = line.match(/RESOLUTION=(\d+x\d+)/i);
+        const fpsMatch = line.match(/FRAME-RATE=([\d.]+)/i);
+
+        const bw = bwMatch ? parseInt(bwMatch[1], 10) : 0;
+        if (bw >= bestBandwidth) {
+          bestBandwidth  = bw;
+          bestResolution = resMatch ? resMatch[1] : bestResolution;
+          bestFrameRate  = fpsMatch ? parseFloat(fpsMatch[1]) : bestFrameRate;
+        }
+      }
+
+      if (bestResolution !== null) this._state.resolution = bestResolution;
+      if (bestFrameRate  !== null) this._state.frameRate  = bestFrameRate;
+    } catch (_) { /* ignore – proxy operation must not be affected */ }
+  }
 
   async _proxy(url, req, res, port) {
     const upstream = await fetch(url, {
