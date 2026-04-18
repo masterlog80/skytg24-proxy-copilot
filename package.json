@@ -1,0 +1,17 @@
+{
+  "name": "skytg24-proxy",
+  "version": "1.0.0",
+  "description": "Sky TG24 live-stream proxy with Windscribe VPN control UI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "chart.js": "^4.4.0"
+  }
+}
