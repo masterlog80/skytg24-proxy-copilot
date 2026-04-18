@@ -311,6 +311,29 @@
       <div class="flex flex-col gap-3">
 
         <div>
+          <label>Target URL <span style="color:var(--txt2)">(page to load for stream detection)</span></label>
+          <input type="text" id="fetch-target-url" placeholder="https://tg24.sky.it/diretta" />
+        </div>
+
+        <div class="flex gap-4 items-end">
+          <div class="flex-1">
+            <label>Characters to look for <span style="color:var(--txt2)">(in intercepted URLs)</span></label>
+            <input type="text" id="fetch-search-string" placeholder="master.m3u8" />
+          </div>
+        </div>
+
+        <div class="flex gap-4 items-end">
+          <div>
+            <label>Max attempts</label>
+            <input type="number" id="fetch-max-attempts" min="1" max="100" style="width:90px" />
+          </div>
+          <div>
+            <label>Delay between attempts (s)</label>
+            <input type="number" id="fetch-retry-delay" min="1" max="300" style="width:90px" />
+          </div>
+        </div>
+
+        <div>
           <label>Live Stream URL <span style="color:var(--blue)">(auto-detected from Sky TG24)</span></label>
           <div class="flex gap-2">
             <input type="text" id="stream-url" placeholder="Click ↺ to fetch from tg24.sky.it/diretta …" />
@@ -419,8 +442,20 @@
 'use strict';
 
 // ── Auto-detect configuration ─────────────────────────────────────────────────
-const FETCH_MAX_ATTEMPTS  = 10;
-const FETCH_RETRY_DELAY_MS = 5000;
+// Defaults; actual values are read from the UI inputs at runtime.
+const DEFAULT_FETCH_TARGET_URL     = 'https://tg24.sky.it/diretta';
+const DEFAULT_FETCH_SEARCH_STRING  = 'master.m3u8';
+const DEFAULT_FETCH_MAX_ATTEMPTS   = 10;
+const DEFAULT_FETCH_RETRY_DELAY_S  = 5;
+
+/** Return current auto-detect settings from the UI inputs */
+function getFetchConfig() {
+  const targetUrl    = (document.getElementById('fetch-target-url').value    || '').trim() || DEFAULT_FETCH_TARGET_URL;
+  const searchString = (document.getElementById('fetch-search-string').value || '').trim() || DEFAULT_FETCH_SEARCH_STRING;
+  const maxAttempts  = Math.max(1, parseInt(document.getElementById('fetch-max-attempts').value,  10) || DEFAULT_FETCH_MAX_ATTEMPTS);
+  const retryDelaySec = Math.max(1, parseInt(document.getElementById('fetch-retry-delay').value, 10) || DEFAULT_FETCH_RETRY_DELAY_S);
+  return { targetUrl, searchString, maxAttempts, retryDelayMs: retryDelaySec * 1000 };
+}
 
 // ── Chart ────────────────────────────────────────────────────────────────────
 const MAX_PTS = 60;
@@ -625,46 +660,60 @@ async function fetchURL() {
   const btn = document.getElementById('btn-fetch');
   btn.disabled = true;
 
+  const { targetUrl, searchString, maxAttempts, retryDelayMs } = getFetchConfig();
+
+  log(`Auto-detect config – target: ${targetUrl} · search: "${searchString}" · attempts: ${maxAttempts} · delay: ${retryDelayMs / 1000}s`, 'info');
+
   let lastErr = '';
-  for (let attempt = 1; attempt <= FETCH_MAX_ATTEMPTS; attempt++) {
-    setMsg('stream-msg', `⏳ Auto-detecting URL… (attempt ${attempt}/${FETCH_MAX_ATTEMPTS})`, 'var(--yellow)');
-    log(`Auto-detect attempt ${attempt}/${FETCH_MAX_ATTEMPTS} – fetching from tg24.sky.it…`, 'info');
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // Fetch external IP for this attempt
+    let externalIp = '?';
     try {
-      const r = await post('/api/stream/fetch-url', {});
-      if (r.url && r.url.includes('master.m3u8')) {
+      const ipRes = await fetch('/api/external-ip');
+      if (ipRes.ok) {
+        const ipData = await ipRes.json();
+        externalIp = ipData.ip || '?';
+      }
+    } catch (_) { /* ignore – IP fetch failure must not block stream detection */ }
+
+    setMsg('stream-msg', `⏳ Auto-detecting URL… (attempt ${attempt}/${maxAttempts})`, 'var(--yellow)');
+    log(`Attempt ${attempt}/${maxAttempts} – IP: ${externalIp} – fetching from ${targetUrl}…`, 'info');
+    try {
+      const r = await post('/api/stream/fetch-url', { targetUrl, searchString });
+      if (r.url && r.url.includes(searchString)) {
         document.getElementById('stream-url').value          = r.url;
         document.getElementById('detected-url').textContent  = r.url;
         document.getElementById('detected-url').style.color  = 'var(--blue)';
         post('/api/settings', { streamUrl: r.url }).catch(() => {});
         setMsg('stream-msg', '✓ URL detected successfully', 'var(--green)');
-        log(`Stream URL detected: ${r.url}`, 'ok');
+        log(`Stream URL detected (attempt ${attempt}, IP: ${externalIp}): ${r.url}`, 'ok');
         btn.disabled = false;
         return;
       }
-      // Got a response but the URL does not contain master.m3u8
+      // Got a response but the URL does not contain the search string
       let reason;
       if (r.url) {
-        reason = `URL found but does not contain master.m3u8: ${r.url}`;
+        reason = `URL found but does not contain "${searchString}": ${r.url}`;
       } else {
         reason = r.error || 'No URL returned';
       }
       lastErr = reason;
-      log(`Attempt ${attempt}/${FETCH_MAX_ATTEMPTS} failed – ${reason}`, 'err');
+      log(`Attempt ${attempt}/${maxAttempts} failed (IP: ${externalIp}) – ${reason}`, 'err');
     } catch (e) {
       lastErr = e.message;
-      log(`Attempt ${attempt}/${FETCH_MAX_ATTEMPTS} error – ${e.message}`, 'err');
+      log(`Attempt ${attempt}/${maxAttempts} error (IP: ${externalIp}) – ${e.message}`, 'err');
     }
 
-    if (attempt < FETCH_MAX_ATTEMPTS) {
-      log(`Retrying in ${FETCH_RETRY_DELAY_MS / 1000}s…`, 'info');
-      setMsg('stream-msg', `⏳ Retrying in ${FETCH_RETRY_DELAY_MS / 1000}s… (attempt ${attempt}/${FETCH_MAX_ATTEMPTS} failed)`, 'var(--yellow)');
-      await new Promise(resolve => setTimeout(resolve, FETCH_RETRY_DELAY_MS));
+    if (attempt < maxAttempts) {
+      log(`Retrying in ${retryDelayMs / 1000}s…`, 'info');
+      setMsg('stream-msg', `⏳ Retrying in ${retryDelayMs / 1000}s… (attempt ${attempt}/${maxAttempts} failed)`, 'var(--yellow)');
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
     }
   }
 
   // All attempts exhausted
-  setMsg('stream-msg', `✗ Could not detect master.m3u8 after ${FETCH_MAX_ATTEMPTS} attempts`, 'var(--red)');
-  log(`Auto-detect failed after ${FETCH_MAX_ATTEMPTS} attempts. Last error: ${lastErr}`, 'err');
+  setMsg('stream-msg', `✗ Could not detect "${searchString}" after ${maxAttempts} attempts`, 'var(--red)');
+  log(`Auto-detect failed after ${maxAttempts} attempts. Last error: ${lastErr}`, 'err');
   const fb = document.getElementById('stream-fallback').value.trim();
   if (fb) {
     document.getElementById('stream-url').value = fb;
@@ -759,6 +808,12 @@ async function loadSettings() {
 
 /** Load configs and settings in parallel, then restore the saved endpoint */
 async function init() {
+  // Populate fetch-config inputs from constants (single source of truth)
+  document.getElementById('fetch-target-url').value    = DEFAULT_FETCH_TARGET_URL;
+  document.getElementById('fetch-search-string').value = DEFAULT_FETCH_SEARCH_STRING;
+  document.getElementById('fetch-max-attempts').value  = DEFAULT_FETCH_MAX_ATTEMPTS;
+  document.getElementById('fetch-retry-delay').value   = DEFAULT_FETCH_RETRY_DELAY_S;
+
   const [, settings] = await Promise.all([loadConfigs(), loadSettings()]);
   if (settings.vpnEndpoint) {
     const sel = document.getElementById('vpn-endpoint');

@@ -4,6 +4,7 @@ const express = require('express');
 const http    = require('http');
 const WebSocket = require('ws');
 const path    = require('path');
+const fetch   = require('node-fetch');
 
 const VPNManager      = require('./services/vpnManager');
 const StreamManager   = require('./services/streamManager');
@@ -77,13 +78,32 @@ app.post('/api/vpn/disconnect', async (_req, res) => {
 
 // ── Stream routes ────────────────────────────────────────────────────────────
 
-app.post('/api/stream/fetch-url', async (_req, res) => {
+app.post('/api/stream/fetch-url', async (req, res) => {
+  const { targetUrl, searchString } = req.body || {};
   try {
-    const url = await streamManager.fetchSkyUrl();
+    const url = await streamManager.fetchSkyUrl(targetUrl, searchString);
     res.json({ url });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/external-ip', async (_req, res) => {
+  const SERVICES = [
+    'https://ifconfig.io/ip',
+    'https://api.ipify.org',
+    'https://checkip.amazonaws.com',
+  ];
+  for (const svc of SERVICES) {
+    try {
+      const r = await fetch(svc, { timeout: 5000 });
+      if (r.ok) {
+        const ip = (await r.text()).trim();
+        return res.json({ ip });
+      }
+    } catch (_) { /* try next service */ }
+  }
+  res.status(503).json({ error: 'Could not determine external IP' });
 });
 
 app.get('/api/stream/status', (_req, res) => {
