@@ -8,6 +8,7 @@ const SETTINGS_FILE = process.env.SETTINGS_FILE || '/config/settings.json';
 const DEFAULTS = {
   vpnEndpoint:      '',
   vpnUsername:      '',
+  vpnPassword:      '',
   streamPort:       6443,
   streamUrl:        '',
   streamFallbackUrl: '',

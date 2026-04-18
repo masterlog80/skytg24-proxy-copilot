@@ -669,11 +669,19 @@ async function loadConfigs() {
 
 // ── Settings persistence ──────────────────────────────────────────────────────
 let _saveTimer = null;
+let _pendingChanges = {};
 
-/** Debounce-save the given key/value pair to the server */
+/** Debounce-save the given key/value pair to the server.
+ *  Accumulates all changes made within the debounce window so that rapid
+ *  edits to multiple fields do not cause earlier saves to be discarded. */
 function scheduleSave(key, value) {
+  _pendingChanges[key] = value;
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => post('/api/settings', { [key]: value }).catch(() => {}), 400);
+  _saveTimer = setTimeout(() => {
+    const changes = { ..._pendingChanges };
+    _pendingChanges = {};
+    post('/api/settings', changes).catch(() => {});
+  }, 400);
 }
 
 /** Load persisted settings and apply them to the form */
@@ -684,6 +692,7 @@ async function loadSettings() {
     if (s.streamUrl)         document.getElementById('stream-url').value      = s.streamUrl;
     if (s.streamFallbackUrl) document.getElementById('stream-fallback').value = s.streamFallbackUrl;
     if (s.vpnUsername)       document.getElementById('vpn-user').value        = s.vpnUsername;
+    if (s.vpnPassword)       document.getElementById('vpn-pass').value        = s.vpnPassword;
     return s;
   } catch { return {}; }
 }
@@ -704,6 +713,8 @@ document.getElementById('vpn-endpoint').addEventListener('change',
   e => scheduleSave('vpnEndpoint', e.target.value));
 document.getElementById('vpn-user').addEventListener('input',
   e => scheduleSave('vpnUsername', e.target.value));
+document.getElementById('vpn-pass').addEventListener('input',
+  e => scheduleSave('vpnPassword', e.target.value));
 document.getElementById('stream-port').addEventListener('input',
   e => { const p = parseInt(e.target.value, 10); if (!isNaN(p)) scheduleSave('streamPort', p); });
 document.getElementById('stream-url').addEventListener('input',
