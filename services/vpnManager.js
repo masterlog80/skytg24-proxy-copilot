@@ -1,6 +1,6 @@
 'use strict';
 
-const { spawn }      = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const EventEmitter   = require('events');
 const fs             = require('fs');
 const path           = require('path');
@@ -11,12 +11,19 @@ const LOG_FILE       = '/tmp/openvpn.log';
 const PID_FILE       = '/tmp/openvpn.pid';
 const CONNECT_TIMEOUT_MS = 90_000;
 
+// Policy-routing constants used to keep management-UI traffic on eth0 while
+// the VPN's redirect-gateway handles all other outbound traffic.
+const POLICY_ROUTE_TABLE  = '100';   // secondary routing table id
+const POLICY_ROUTE_FWMARK = '0x1';  // iptables / ip-rule firewall mark
+
 class VPNManager extends EventEmitter {
   constructor() {
     super();
-    this._proc       = null;
-    this._logWatcher = null;
-    this._state      = {
+    this._proc              = null;
+    this._logWatcher        = null;
+    this._savedGw           = null;  // { gateway, dev } captured before VPN changes routing
+    this._policyRouteActive = false;
+    this._state             = {
       status:      'disconnected', // disconnected | connecting | connected | error
       endpoint:    null,
       ip:          null,
@@ -78,6 +85,10 @@ class VPNManager extends EventEmitter {
       await this.disconnect();
     }
 
+    // Capture the pre-VPN default gateway so we can restore management-traffic
+    // routing after redirect-gateway rewrites the routing table.
+    this._savedGw = this._captureDefaultGateway();
+
     // Write credentials securely
     fs.writeFileSync(CREDS_FILE, `${username}\n${password}`, { mode: 0o600 });
 
@@ -101,11 +112,9 @@ class VPNManager extends EventEmitter {
         // outbound internet traffic (including Sky TG24 / CDN requests) is
         // routed through the tunnel and exits with an Italian IP address.
         //
-        // The control-plane UI remains reachable because Docker bridge
-        // traffic (172.17.0.0/16) is a directly-connected route on eth0
-        // with a longer prefix (/16) than the VPN's summary routes (/1),
-        // so Linux always prefers eth0 for that subnet — even after
-        // redirect-gateway rewrites the default route.
+        // Management-UI traffic (responses back to clients that connected via
+        // the Docker bridge / eth0) is kept on eth0 by the policy-routing
+        // rules set up in _setupPolicyRouting() once the tunnel is live.
       ], { stdio: 'pipe' });
 
       this._proc = proc;
@@ -135,6 +144,7 @@ class VPNManager extends EventEmitter {
           if (log.includes('Initialization Sequence Completed')) {
             const ip = this._parseAssignedIp(log);
             this._setState({ status: 'connected', ip, connectedAt: new Date().toISOString() });
+            this._setupPolicyRouting(this._savedGw);
             settle(null);
           } else if (/AUTH_FAILED|auth-failure|incorrect password/i.test(log)) {
             this._setState({ status: 'error', error: 'Authentication failed' });
@@ -167,6 +177,9 @@ class VPNManager extends EventEmitter {
   async disconnect() {
     clearInterval(this._logWatcher);
     this._logWatcher = null;
+
+    this._teardownPolicyRouting(this._savedGw);
+    this._savedGw = null;
 
     if (this._proc) {
       this._proc.kill('SIGTERM');
@@ -203,6 +216,68 @@ class VPNManager extends EventEmitter {
   _cleanup() {
     try { fs.unlinkSync(CREDS_FILE); } catch (_) {}
     try { fs.unlinkSync(PID_FILE);   } catch (_) {}
+  }
+
+  /** Read the current default gateway from the routing table (before VPN changes it) */
+  _captureDefaultGateway() {
+    try {
+      const out = execFileSync('ip', ['route', 'show', 'default'], { encoding: 'utf8' });
+      const m   = out.match(/default via ([\d.]+) dev (\S+)/);
+      if (!m) return null;
+      return { gateway: m[1], dev: m[2] };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Install policy-routing rules so that connections established via the
+   * Docker bridge (eth0) send their responses back through eth0, regardless
+   * of the VPN's redirect-gateway routes.
+   *
+   * Without this, redirect-gateway adds 0/1 + 128/1 routes via tun0.  When a
+   * management-UI client connects via the Docker-bridge port mapping, the
+   * container's response to the client's real IP would be sent into the VPN
+   * tunnel, breaking the connection asymmetrically.
+   *
+   * Fix: use iptables CONNMARK to tag every connection whose first packet
+   * arrived on eth0, then use an `ip rule` to look up a secondary routing
+   * table (table 100) for output packets bearing that mark.  Table 100 holds
+   * the original default route via eth0's gateway.
+   */
+  _setupPolicyRouting(gw) {
+    if (!gw) return;
+    // Clean up any stale rules from a previous session first.
+    this._teardownPolicyRouting(gw);
+    const { gateway, dev } = gw;
+    try {
+      execFileSync('ip', ['route', 'replace', 'default', 'via', gateway, 'dev', dev, 'table', POLICY_ROUTE_TABLE]);
+      execFileSync('ip', ['rule', 'add', 'fwmark', POLICY_ROUTE_FWMARK, 'lookup', POLICY_ROUTE_TABLE, 'priority', '100']);
+      execFileSync('iptables', ['-t', 'mangle', '-A', 'PREROUTING', '-i', dev,
+        '-j', 'CONNMARK', '--set-mark', POLICY_ROUTE_FWMARK]);
+      execFileSync('iptables', ['-t', 'mangle', '-A', 'OUTPUT',
+        '-m', 'connmark', '--mark', POLICY_ROUTE_FWMARK, '-j', 'MARK', '--set-mark', POLICY_ROUTE_FWMARK]);
+      this._policyRouteActive = true;
+    } catch (err) {
+      console.warn('[VPN] Warning: could not set up policy routing:', err.message);
+    }
+  }
+
+  /** Remove the policy-routing rules installed by _setupPolicyRouting */
+  _teardownPolicyRouting(gw) {
+    if (!this._policyRouteActive || !gw) return;
+    this._policyRouteActive = false;
+    const { gateway, dev } = gw;
+    try { execFileSync('ip', ['rule', 'del', 'fwmark', POLICY_ROUTE_FWMARK, 'lookup', POLICY_ROUTE_TABLE, 'priority', '100']); } catch (_) {}
+    try { execFileSync('ip', ['route', 'flush', 'table', POLICY_ROUTE_TABLE]); } catch (_) {}
+    try {
+      execFileSync('iptables', ['-t', 'mangle', '-D', 'PREROUTING', '-i', dev,
+        '-j', 'CONNMARK', '--set-mark', POLICY_ROUTE_FWMARK]);
+    } catch (_) {}
+    try {
+      execFileSync('iptables', ['-t', 'mangle', '-D', 'OUTPUT',
+        '-m', 'connmark', '--mark', POLICY_ROUTE_FWMARK, '-j', 'MARK', '--set-mark', POLICY_ROUTE_FWMARK]);
+    } catch (_) {}
   }
 
   _parseAssignedIp(log) {
