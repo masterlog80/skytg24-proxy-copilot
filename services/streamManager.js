@@ -1,6 +1,7 @@
 'use strict';
 
 const express    = require('express');
+const fs         = require('fs');
 const http       = require('http');
 const fetch      = require('node-fetch');
 const puppeteer  = require('puppeteer-core');
@@ -8,7 +9,44 @@ const { URL }    = require('url');
 
 const SKY_PAGE_URL = 'https://tg24.sky.it/diretta';
 const PROXY_HOST   = process.env.PROXY_HOST || 'localhost';
-const CHROME_BIN   = process.env.CHROME_BIN || '/usr/bin/google-chrome-stable';
+
+/**
+ * Resolve the path to a Chrome or Chromium executable.
+ *
+ * Priority:
+ *  1. CHROME_BIN environment variable (explicit override).
+ *  2. First candidate path that exists on the filesystem.
+ *
+ * Returns the resolved path, or null when nothing is found.
+ */
+function detectChromePath() {
+  if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
+
+  const candidates = [
+    // Linux - Google Chrome (stable / unstable / beta)
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-unstable',
+    // Linux - Chromium
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/usr/local/bin/chromium',
+    '/snap/bin/chromium',
+    // macOS
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ];
+
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch { /* ignore */ }
+  }
+
+  return null;
+}
+
+const CHROME_BIN = detectChromePath();
 
 // How long (ms) to wait for a .m3u8 request to appear after page load
 const BROWSER_FETCH_TIMEOUT_MS = 30_000;
@@ -67,6 +105,14 @@ class StreamManager {
    * the page source is not sufficient – we need to execute the page fully.
    */
   async fetchSkyUrl() {
+    if (!CHROME_BIN) {
+      throw new Error(
+        'No Chrome or Chromium executable was found. ' +
+        'Install Google Chrome / Chromium, or set the CHROME_BIN environment variable ' +
+        'to the full path of the browser executable.'
+      );
+    }
+
     let browser;
     try {
       browser = await puppeteer.launch({
