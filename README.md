@@ -39,6 +39,11 @@ Repeat for each endpoint you want to use.
 ```bash
 git clone https://github.com/masterlog80/skytg24-proxy-copilot.git
 cd skytg24-proxy-copilot
+yes | docker image prune --all
+docker build -t skytg24-proxy-copilot .
+
+# Deploy the composer file:
+docker compose -f docker-compose.yml up -d --remove-orphans
 
 # copy your .ovpn files into config/vpn/
 cp ~/Downloads/milan-duomo.ovpn     config/vpn/
