@@ -47,7 +47,6 @@ cp ~/milan-duomo.ovpn     config/vpn/
 cp ~/milan-galleria.ovpn  config/vpn/
 cp ~/settings.json config/
 
-
 # Deploy the composer file:
 docker compose -f docker-compose.yml up -d --remove-orphans
 ```
