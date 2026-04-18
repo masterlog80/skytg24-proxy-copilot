@@ -44,96 +44,114 @@ class VPNManager extends EventEmitter {
     }
   }
 
-  /** Connect using a named .ovpn file and plaintext credentials */
+  /** Connect using a named .ovpn file and plaintext credentials.
+   *  Validates inputs synchronously (throws on error) then starts the async
+   *  VPN process in the background.  Subsequent state changes are delivered
+   *  via the 'status' EventEmitter event so callers can return to the client
+   *  immediately without waiting for the full handshake.
+   */
   connect(configFile, username, password) {
     // Sanitise: must be a plain filename, not a path
     if (path.basename(configFile) !== configFile) {
-      return Promise.reject(new Error('Invalid config filename'));
+      throw new Error('Invalid config filename');
     }
     const configPath = path.join(VPN_CONFIG_DIR, configFile);
     if (!fs.existsSync(configPath)) {
-      return Promise.reject(new Error(`Config file not found: ${configFile}`));
+      throw new Error(`Config file not found: ${configFile}`);
     }
 
-    const doConnect = async () => {
-      // Kill any existing connection first
-      if (this._state.status !== 'disconnected') {
-        await this.disconnect();
-      }
+    // Prevent a second connect while one is already in progress.
+    if (this._state.status === 'connecting') {
+      throw new Error('A connection attempt is already in progress');
+    }
 
-      // Write credentials securely
-      fs.writeFileSync(CREDS_FILE, `${username}\n${password}`, { mode: 0o600 });
+    // Fire-and-forget: the async handshake runs in the background; all state
+    // changes are broadcast via _setState / 'status' events.
+    this._doConnect(configFile, configPath, username, password).catch(err => {
+      this._setState({ status: 'error', error: err.message });
+    });
+  }
 
-      // Reset log
-      try { fs.writeFileSync(LOG_FILE, ''); } catch (_) {}
+  async _doConnect(configFile, configPath, username, password) {
+    // Kill any existing connection first
+    if (this._state.status !== 'disconnected') {
+      await this.disconnect();
+    }
 
-      this._setState({
-        status:   'connecting',
-        endpoint: configFile.replace(/\.ovpn$/i, ''),
-        error:    null,
-      });
+    // Write credentials securely
+    fs.writeFileSync(CREDS_FILE, `${username}\n${password}`, { mode: 0o600 });
 
-      return new Promise((resolve, reject) => {
-        const proc = spawn('openvpn', [
-          '--config',        configPath,
-          '--auth-user-pass', CREDS_FILE,
-          '--log',            LOG_FILE,
-          '--writepid',       PID_FILE,
-          '--verb',           '3',
-        ], { stdio: 'pipe' });
+    // Reset log
+    try { fs.writeFileSync(LOG_FILE, ''); } catch (_) {}
 
-        this._proc = proc;
-        let settled = false;
+    this._setState({
+      status:   'connecting',
+      endpoint: configFile.replace(/\.ovpn$/i, ''),
+      error:    null,
+    });
 
-        const settle = (err) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          clearInterval(this._logWatcher);
-          if (err) reject(err); else resolve();
-        };
+    return new Promise((resolve, reject) => {
+      const proc = spawn('openvpn', [
+        '--config',        configPath,
+        '--auth-user-pass', CREDS_FILE,
+        '--log',            LOG_FILE,
+        '--writepid',       PID_FILE,
+        '--verb',           '3',
+      ], { stdio: 'pipe' });
 
-        // Timeout
-        const timer = setTimeout(() => {
-          this._setState({ status: 'error', error: 'Connection timed out' });
-          settle(new Error('VPN connection timed out'));
-          proc.kill('SIGTERM');
-        }, CONNECT_TIMEOUT_MS);
+      this._proc = proc;
+      let settled = false;
 
-        // Poll the OpenVPN log for success / auth-failure
-        this._logWatcher = setInterval(() => {
-          try {
-            const log = fs.readFileSync(LOG_FILE, 'utf8');
-            if (log.includes('Initialization Sequence Completed')) {
-              const ip = this._parseAssignedIp(log);
-              this._setState({ status: 'connected', ip, connectedAt: new Date().toISOString() });
-              settle(null);
-            } else if (/AUTH_FAILED|auth-failure|incorrect password/i.test(log)) {
-              this._setState({ status: 'error', error: 'Authentication failed' });
-              settle(new Error('Authentication failed'));
-              proc.kill('SIGTERM');
-            }
-          } catch (_) {}
-        }, 500);
+      const settle = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearInterval(logWatcher);
+        if (err) reject(err); else resolve();
+      };
 
-        proc.on('exit', () => {
-          clearInterval(this._logWatcher);
-          clearTimeout(timer);
-          this._proc = null;
-          this._cleanup();
-          if (this._state.status !== 'error') {
-            this._setState({ status: 'disconnected', ip: null, connectedAt: null });
+      // Timeout
+      const timer = setTimeout(() => {
+        this._setState({ status: 'error', error: 'Connection timed out' });
+        settle(new Error('VPN connection timed out'));
+        proc.kill('SIGTERM');
+      }, CONNECT_TIMEOUT_MS);
+
+      // Poll the OpenVPN log for success / auth-failure.
+      // Use a local variable so settle() doesn't accidentally clear a watcher
+      // belonging to a later connection attempt.
+      const logWatcher = setInterval(() => {
+        try {
+          const log = fs.readFileSync(LOG_FILE, 'utf8');
+          if (log.includes('Initialization Sequence Completed')) {
+            const ip = this._parseAssignedIp(log);
+            this._setState({ status: 'connected', ip, connectedAt: new Date().toISOString() });
+            settle(null);
+          } else if (/AUTH_FAILED|auth-failure|incorrect password/i.test(log)) {
+            this._setState({ status: 'error', error: 'Authentication failed' });
+            settle(new Error('Authentication failed'));
+            proc.kill('SIGTERM');
           }
-        });
+        } catch (_) {}
+      }, 500);
+      // Keep the instance reference so disconnect() can cancel it too.
+      this._logWatcher = logWatcher;
 
-        proc.on('error', (err) => {
-          this._setState({ status: 'error', error: err.message });
-          settle(err);
-        });
+      proc.on('exit', () => {
+        clearInterval(logWatcher);
+        clearTimeout(timer);
+        this._proc = null;
+        this._cleanup();
+        if (this._state.status !== 'error') {
+          this._setState({ status: 'disconnected', ip: null, connectedAt: null });
+        }
       });
-    };
 
-    return doConnect();
+      proc.on('error', (err) => {
+        this._setState({ status: 'error', error: err.message });
+        settle(err);
+      });
+    });
   }
 
   /** Terminate the VPN process */
