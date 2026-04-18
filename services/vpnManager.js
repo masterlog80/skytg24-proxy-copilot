@@ -3,6 +3,7 @@
 const { spawn, execFileSync } = require('child_process');
 const EventEmitter   = require('events');
 const fs             = require('fs');
+const https          = require('https');
 const path           = require('path');
 
 const VPN_CONFIG_DIR = process.env.VPN_CONFIG_DIR || path.join(__dirname, '..', 'config', 'vpn');
@@ -103,15 +104,18 @@ class VPNManager extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const proc = spawn('openvpn', [
-        '--config',        configPath,
+        '--config',         configPath,
         '--auth-user-pass', CREDS_FILE,
         '--log',            LOG_FILE,
         '--writepid',       PID_FILE,
         '--verb',           '3',
-        // Allow the VPN server's redirect-gateway directive so that all
-        // outbound internet traffic (including Sky TG24 / CDN requests) is
-        // routed through the tunnel and exits with an Italian IP address.
-        //
+        // Force ALL outbound traffic through the VPN tunnel so that Sky TG24 /
+        // CDN requests exit with an Italian IP address.
+        '--redirect-gateway', 'def1',
+        // Keep local RFC-1918 networks routed via the original gateway so that
+        // LAN traffic (192.168.0.0/16 and 10.0.0.0/8) bypasses the tunnel.
+        '--route', '192.168.0.0', '255.255.0.0', 'net_gateway',  // /16
+        '--route', '10.0.0.0',   '255.0.0.0',   'net_gateway',  // /8
         // Management-UI traffic (responses back to clients that connected via
         // the Docker bridge / eth0) is kept on eth0 by the policy-routing
         // rules set up in _setupPolicyRouting() once the tunnel is live.
@@ -142,10 +146,23 @@ class VPNManager extends EventEmitter {
         try {
           const log = fs.readFileSync(LOG_FILE, 'utf8');
           if (log.includes('Initialization Sequence Completed')) {
-            const ip = this._parseAssignedIp(log);
-            this._setState({ status: 'connected', ip, connectedAt: new Date().toISOString() });
             this._setupPolicyRouting(this._savedGw);
+            // Mark connected immediately; public IP is resolved asynchronously.
+            this._setState({ status: 'connected', ip: null, connectedAt: new Date().toISOString() });
             settle(null);
+            // Parse the tunnel IP now (synchronously) as a fallback before the
+            // async public-IP request is dispatched.
+            const tunnelIp = this._parseAssignedIp(log);
+            // Fetch the actual public exit IP (traffic now travels through the
+            // VPN tunnel, so this reflects the VPN server's external address).
+            this._fetchPublicIp()
+              .then(ip => {
+                if (this._state.status === 'connected') this._setState({ ip });
+              })
+              .catch(() => {
+                // Fall back to the tunnel interface IP parsed from the log.
+                if (this._state.status === 'connected') this._setState({ ip: tunnelIp });
+              });
           } else if (/AUTH_FAILED|auth-failure|incorrect password/i.test(log)) {
             this._setState({ status: 'error', error: 'Authentication failed' });
             settle(new Error('Authentication failed'));
@@ -278,6 +295,28 @@ class VPNManager extends EventEmitter {
       execFileSync('iptables', ['-t', 'mangle', '-D', 'OUTPUT',
         '-m', 'connmark', '--mark', POLICY_ROUTE_FWMARK, '-j', 'MARK', '--set-mark', POLICY_ROUTE_FWMARK]);
     } catch (_) {}
+  }
+
+  /** Fetch the actual public exit IP by calling an external IP-echo service.
+   *  Must be called after the VPN tunnel is live so the request travels through
+   *  it and reflects the VPN server's external address rather than the host's.
+   */
+  _fetchPublicIp() {
+    return new Promise((resolve, reject) => {
+      const req = https.get('https://api.ipify.org?format=json', (res) => {
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data).ip);
+          } catch {
+            reject(new Error('Failed to parse public IP response'));
+          }
+        });
+      });
+      req.setTimeout(10000, () => { req.destroy(); reject(new Error('Public IP request timed out')); });
+      req.on('error', reject);
+    });
   }
 
   _parseAssignedIp(log) {
