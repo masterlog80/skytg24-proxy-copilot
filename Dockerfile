@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libatk1.0-0t64 \
         libcups2t64 \
         libdbus-1-3 \
-        libgdk-pixbuf2.0-0 \
+        libgdk-pixbuf-2.0-0 \
         libgtk-3-0t64 \
         libnspr4 \
         libnss3 \
