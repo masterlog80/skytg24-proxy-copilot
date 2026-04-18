@@ -30,7 +30,6 @@ services:
       # Set to the Docker host IP (or hostname) so rewritten HLS URLs
       # point to a host reachable by stream clients.
       # Examples: localhost, 192.168.1.100, mymachine.local
-      - PROXY_HOST=localhost
       # Override the directory where .ovpn files are read from
       - VPN_CONFIG_DIR=/config/vpn
       - PROXY_HOST=192.168.10.245
