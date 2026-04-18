@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 LABEL maintainer="skytg24-proxy-copilot" \
       description="Sky TG24 live-stream proxy with Windscribe VPN control UI"
@@ -22,13 +22,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dnsutils \
         iptables \
         fonts-liberation \
-        libasound2 \
-        libatk-bridge2.0-0 \
-        libatk1.0-0 \
-        libcups2 \
+        libasound2t64 \
+        libatk-bridge2.0-0t64 \
+        libatk1.0-0t64 \
+        libcups2t64 \
         libdbus-1-3 \
         libgdk-pixbuf2.0-0 \
-        libgtk-3-0 \
+        libgtk-3-0t64 \
         libnspr4 \
         libnss3 \
         libx11-xcb1 \
