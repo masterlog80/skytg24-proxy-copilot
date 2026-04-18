@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dnsutils \
         iptables \
         fonts-liberation \
-        libasound2t64 \
+        libasound2 \
         libatk-bridge2.0-0 \
         libatk1.0-0 \
         libcups2 \
