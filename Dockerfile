@@ -44,7 +44,7 @@ RUN apt-get install -y --no-install-recommends \
 # missing dependencies (e.g. libxss1 removed in Ubuntu 22.04+).
 RUN curl -fsSL -o /tmp/google-chrome-stable.deb \
          https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && dpkg -i /tmp/google-chrome-stable.deb || apt-get install -y -f \
+    && apt-get install -y /tmp/google-chrome-stable.deb \
     && rm /tmp/google-chrome-stable.deb
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
