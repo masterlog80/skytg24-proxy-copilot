@@ -460,7 +460,18 @@ class StreamManager extends EventEmitter {
     });
 
     app.get('/stream', async (req, res) => {
-      const url = this._state.sourceUrl;
+      let url = this._state.sourceUrl;
+      if (!url) {
+        // Wait up to 3 minutes for the VPN to connect and the stream URL to be
+        // detected before giving up.  This prevents VLC (and other players) from
+        // showing an immediate error when the stream is opened before the VPN is
+        // ready; the player will instead show a buffering/loading state.
+        // The AbortController lets us cancel the wait immediately when the client
+        // disconnects so the polling interval does not linger after drop.
+        const ac = new AbortController();
+        res.on('close', () => ac.abort());
+        url = await this._waitForSourceUrl(180_000, ac.signal);
+      }
       if (!url) return res.status(503).send('Stream not available yet. Waiting for VPN connection and URL detection.');
       try { await this._proxy(url, req, res); }
       catch (e) { res.status(502).send(e.message); }
@@ -560,6 +571,41 @@ class StreamManager extends EventEmitter {
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Poll until `this._state.sourceUrl` is set or *timeoutMs* elapses.
+   * Resolves with the URL string when available, or `null` on timeout/abort.
+   * Pass an `AbortSignal` to cancel early (e.g. when the client disconnects)
+   * so the polling interval is cleared and does not linger.
+   *
+   * @param {number}       timeoutMs  Maximum time to wait in milliseconds
+   * @param {AbortSignal}  [signal]   Optional signal to cancel the wait early
+   * @returns {Promise<string|null>}
+   */
+  _waitForSourceUrl(timeoutMs, signal) {
+    if (this._state.sourceUrl) return Promise.resolve(this._state.sourceUrl);
+    const POLL_INTERVAL_MS = 1_000;
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+      const cleanup = (result) => {
+        clearInterval(timer);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        resolve(result);
+      };
+      const onAbort = () => cleanup(null);
+      if (signal) {
+        if (signal.aborted) return resolve(null);
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+      const timer = setInterval(() => {
+        if (this._state.sourceUrl) {
+          cleanup(this._state.sourceUrl);
+        } else if (Date.now() >= deadline) {
+          cleanup(null);
+        }
+      }, POLL_INTERVAL_MS);
+    });
+  }
 
   /**
    * Prune stale client entries, compute the current active-client count, and
