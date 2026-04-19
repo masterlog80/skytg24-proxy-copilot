@@ -59,6 +59,10 @@ const FETCH_HEADERS = {
 // How often (ms) to re-fetch stream info (resolution / frame-rate) while active
 const STREAM_INFO_POLL_MS = 10_000;
 
+// Sliding window (ms) within which a unique client IP is counted as active.
+// HLS players poll the manifest every few seconds, so 30 s gives ample margin.
+const CLIENT_ACTIVE_MS = 30_000;
+
 class StreamManager extends EventEmitter {
   /**
    * @param {() => object} [getVpnStatus]  Optional callback that returns the
@@ -72,11 +76,11 @@ class StreamManager extends EventEmitter {
     this._getVpnStatus = typeof getVpnStatus === 'function' ? getVpnStatus : null;
     this._server       = null;
     this._pollInterval = null;
+    this._clientLastSeen = new Map(); // ip → timestamp of last /stream or /proxy request
     this._state        = {
       active:      false,
       port:        null,
       sourceUrl:   null,
-      clientCount: 0,
       resolution:  null,
       frameRate:   null,
     };
@@ -285,17 +289,13 @@ class StreamManager extends EventEmitter {
       next();
     });
 
-    // Count active request cycles as "clients"
-    app.use((_req, res, next) => {
-      this._state.clientCount++;
-      let decremented = false;
-      const done = () => {
-        if (decremented) return;
-        decremented = true;
-        this._state.clientCount = Math.max(0, this._state.clientCount - 1);
-      };
-      res.on('finish', done);
-      res.on('close',  done);
+    // Track unique client IPs on stream/proxy requests so that clientCount
+    // reflects real viewers rather than individual HTTP request cycles.
+    app.use((req, _res, next) => {
+      if (req.path === '/stream' || req.path === '/proxy') {
+        const ip = req.ip || req.socket?.remoteAddress;
+        if (ip) this._clientLastSeen.set(ip, Date.now());
+      }
       next();
     });
 
@@ -399,7 +399,8 @@ class StreamManager extends EventEmitter {
       const srv = http.createServer(app);
       srv.listen(port, '0.0.0.0', () => {
         this._server = srv;
-        this._state  = { active: true, port, sourceUrl, clientCount: 0, resolution: null, frameRate: null };
+        this._clientLastSeen.clear();
+        this._state  = { active: true, port, sourceUrl, resolution: null, frameRate: null };
         this._log(`Proxy started on port ${port}. Source URL: ${sourceUrl}${this._vpnContext()}`, 'ok');
         // Fetch stream info immediately, then poll on an interval
         this._fetchStreamInfo();
@@ -418,14 +419,15 @@ class StreamManager extends EventEmitter {
     return new Promise((resolve) => {
       clearInterval(this._pollInterval);
       this._pollInterval = null;
+      this._clientLastSeen.clear();
       if (!this._server) {
-        this._state = { active: false, port: null, sourceUrl: null, clientCount: 0, resolution: null, frameRate: null };
+        this._state = { active: false, port: null, sourceUrl: null, resolution: null, frameRate: null };
         return resolve();
       }
       this._log('Proxy stopped', 'warn');
       this._server.close(() => {
         this._server = null;
-        this._state  = { active: false, port: null, sourceUrl: null, clientCount: 0, resolution: null, frameRate: null };
+        this._state  = { active: false, port: null, sourceUrl: null, resolution: null, frameRate: null };
         resolve();
       });
       // Force-close any lingering keep-alive connections
@@ -434,7 +436,13 @@ class StreamManager extends EventEmitter {
   }
 
   getStatus() {
-    return { ...this._state };
+    const now = Date.now();
+    // Prune stale entries and count IPs active within the sliding window.
+    for (const [ip, ts] of this._clientLastSeen) {
+      if (now - ts >= CLIENT_ACTIVE_MS) this._clientLastSeen.delete(ip);
+    }
+    const clientCount = this._clientLastSeen.size;
+    return { ...this._state, clientCount };
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
