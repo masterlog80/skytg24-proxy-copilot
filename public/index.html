@@ -274,9 +274,12 @@
 
         <div>
           <label>Windscribe Endpoint</label>
-          <select id="vpn-endpoint">
-            <option value="">⏳ Loading configs…</option>
-          </select>
+          <div class="flex gap-2 items-center">
+            <select id="vpn-endpoint" class="flex-1">
+              <option value="">⏳ Loading configs…</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" id="btn-reload-configs" onclick="loadConfigs()" title="Reload endpoint list">⟳</button>
+          </div>
           <div class="text-xs mt-1" style="color:var(--txt2)">
             Place <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">.ovpn</code>
             files in <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">./config/vpn/</code>.
@@ -917,17 +920,40 @@ function fallbackCopy(text) {
 }
 
 // ── Populate VPN endpoint selector on load ────────────────────────────────────
+let _loadConfigsInProgress = false;
 async function loadConfigs() {
+  if (_loadConfigsInProgress) return;
+  _loadConfigsInProgress = true;
+
+  const sel = document.getElementById('vpn-endpoint');
+  const btn = document.getElementById('btn-reload-configs');
+  const prevValue = sel.value;
+
+  sel.innerHTML = '<option value="">⏳ Loading configs…</option>';
+  if (btn) btn.disabled = true;
+
+  const ac    = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 10000);
   try {
-    const { configs } = await (await fetch('/api/vpn/configs')).json();
-    const sel = document.getElementById('vpn-endpoint');
+    const res = await fetch('/api/vpn/configs', { signal: ac.signal });
+    clearTimeout(timer);
+    const { configs } = await res.json();
     sel.innerHTML = configs && configs.length
       ? '<option value="">— select endpoint —</option>' +
         configs.map(c => `<option value="${esc(c.file)}">${esc(c.name)}</option>`).join('')
       : '<option value="">No .ovpn files found – see README</option>';
+    // Restore the previously selected value if it still exists after reload
+    if (prevValue) {
+      const opt = Array.from(sel.options).find(o => o.value === prevValue);
+      if (opt) sel.value = prevValue;
+    }
   } catch (e) {
-    document.getElementById('vpn-endpoint').innerHTML =
-      `<option value="">Error loading configs: ${e.message}</option>`;
+    clearTimeout(timer);
+    const msg = e.name === 'AbortError' ? 'Request timed out' : e.message;
+    sel.innerHTML = `<option value="">⚠ Error: ${esc(msg)} – click ⟳ to retry</option>`;
+  } finally {
+    _loadConfigsInProgress = false;
+    if (btn) btn.disabled = false;
   }
 }
 
