@@ -423,6 +423,20 @@
       </div>
     </div>
 
+    <!-- Local Traffic graph -->
+    <div class="card">
+      <div class="flex items-center justify-between mb-3">
+        <div class="card-title" style="margin-bottom:0">📊 Local Traffic</div>
+        <div class="rate-bar">
+          <span><span style="color:var(--green)">▲</span> <span id="local-tx-rate" style="color:var(--txt2)">0 B/s</span></span>
+          <span><span style="color:var(--blue)">▼</span> <span id="local-rx-rate" style="color:var(--txt2)">0 B/s</span></span>
+        </div>
+      </div>
+      <div style="position:relative;height:120px">
+        <canvas id="local-traffic-chart"></canvas>
+      </div>
+    </div>
+
     <!-- Detected stream URL -->
     <div class="card">
       <div class="card-title">🔗 Detected Live Stream URL</div>
@@ -468,6 +482,9 @@ const txData  = Array(MAX_PTS).fill(0);
 const rxData  = Array(MAX_PTS).fill(0);
 const labels  = Array(MAX_PTS).fill('');
 
+const localTxData = Array(MAX_PTS).fill(0);
+const localRxData = Array(MAX_PTS).fill(0);
+
 const trafficChart = new Chart(document.getElementById('traffic-chart'), {
   type: 'line',
   data: {
@@ -486,6 +503,60 @@ const trafficChart = new Chart(document.getElementById('traffic-chart'), {
       {
         label: 'Download (RX)',
         data: rxData,
+        borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,.12)',
+        borderWidth: 1.5,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      },
+    ],
+  },
+  options: {
+    animation: { duration: 200 },
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: { display: false },
+      y: {
+        beginAtZero: true,
+        ticks: {
+          color: '#8b949e',
+          callback: v => fmtRate(v),
+          maxTicksLimit: 4,
+        },
+        grid: { color: 'rgba(48,54,61,.7)' },
+      },
+    },
+    plugins: {
+      legend: {
+        labels: { color: '#8b949e', boxWidth: 10, font: { size: 11 } },
+      },
+      tooltip: {
+        callbacks: { label: c => `${c.dataset.label}: ${fmtRate(c.parsed.y)}` },
+      },
+    },
+  },
+});
+
+const localTrafficChart = new Chart(document.getElementById('local-traffic-chart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'Upload (TX)',
+        data: localTxData,
+        borderColor: '#3fb950',
+        backgroundColor: 'rgba(63,185,80,.12)',
+        borderWidth: 1.5,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      },
+      {
+        label: 'Download (RX)',
+        data: localRxData,
         borderColor: '#58a6ff',
         backgroundColor: 'rgba(88,166,255,.12)',
         borderWidth: 1.5,
@@ -667,6 +738,17 @@ function renderStats(stats) {
   txData.push(tx); txData.shift();
   rxData.push(rx); rxData.shift();
   trafficChart.update('none');
+
+  const ethIf = stats.eth;
+  const localTx = ethIf ? ethIf.txRate : 0;
+  const localRx = ethIf ? ethIf.rxRate : 0;
+
+  document.getElementById('local-tx-rate').textContent = fmtRate(localTx);
+  document.getElementById('local-rx-rate').textContent = fmtRate(localRx);
+
+  localTxData.push(localTx); localTxData.shift();
+  localRxData.push(localRx); localRxData.shift();
+  localTrafficChart.update('none');
 }
 
 // ── VPN actions ───────────────────────────────────────────────────────────────
