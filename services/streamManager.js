@@ -301,7 +301,12 @@ class StreamManager extends EventEmitter {
       if (req.path === '/stream' || req.path === '/proxy') {
         const ip = req.ip || req.socket?.remoteAddress;
         if (ip) {
+          // Prune stale entries and detect →0 transition BEFORE registering the
+          // new client so that a briefly-empty window is not masked by the
+          // incoming entry arriving in the same tick.
+          this._updateClientCount();
           this._clientLastSeen.set(ip, Date.now());
+          // Detect the 0→≥1 transition now that the entry has been recorded.
           this._updateClientCount();
         }
       }
@@ -569,12 +574,16 @@ class StreamManager extends EventEmitter {
       if (now - ts >= CLIENT_ACTIVE_MS) this._clientLastSeen.delete(ip);
     }
     const count = this._clientLastSeen.size;
-    if (this._prevClientCount === 0 && count >= 1) {
+    const prev  = this._prevClientCount;
+    // Update _prevClientCount BEFORE emitting so that re-entrant calls from
+    // event handlers (e.g. via streamManager.getStatus()) see the new value
+    // and do not re-emit the same transition.
+    this._prevClientCount = count;
+    if (prev === 0 && count >= 1) {
       this.emit('firstClientConnected');
-    } else if (this._prevClientCount >= 1 && count === 0) {
+    } else if (prev >= 1 && count === 0) {
       this.emit('noClientsLeft');
     }
-    this._prevClientCount = count;
     return count;
   }
 
