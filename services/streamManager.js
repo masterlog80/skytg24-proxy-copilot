@@ -288,7 +288,12 @@ class StreamManager extends EventEmitter {
     // Count active request cycles as "clients"
     app.use((_req, res, next) => {
       this._state.clientCount++;
-      const done = () => { this._state.clientCount = Math.max(0, this._state.clientCount - 1); };
+      let decremented = false;
+      const done = () => {
+        if (decremented) return;
+        decremented = true;
+        this._state.clientCount = Math.max(0, this._state.clientCount - 1);
+      };
       res.on('finish', done);
       res.on('close',  done);
       next();
