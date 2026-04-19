@@ -77,6 +77,29 @@ app.get('/api/vpn/configs', async (_req, res) => {
   }
 });
 
+app.post('/api/vpn/configs/upload', async (req, res) => {
+  const { filename, content } = req.body || {};
+  if (!filename || typeof filename !== 'string') {
+    return res.status(400).json({ error: 'filename is required' });
+  }
+  if (!content || typeof content !== 'string') {
+    return res.status(400).json({ error: 'content (base64) is required' });
+  }
+  // Reject payloads larger than 1 MB (base64 encoded) to prevent DoS
+  const MAX_CONTENT_BYTES = 1 * 1024 * 1024;
+  if (content.length > MAX_CONTENT_BYTES) {
+    return res.status(400).json({ error: 'File too large (max 1 MB)' });
+  }
+  try {
+    const buffer = Buffer.from(content, 'base64');
+    const saved  = await vpnManager.saveConfig(filename, buffer);
+    const configs = await vpnManager.listConfigs();
+    res.json({ saved, configs });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.get('/api/vpn/status', (_req, res) => {
   res.json(vpnManager.getStatus());
 });

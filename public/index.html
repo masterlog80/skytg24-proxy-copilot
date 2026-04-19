@@ -278,12 +278,13 @@
             <select id="vpn-endpoint" class="flex-1">
               <option value="">⏳ Loading configs…</option>
             </select>
+            <button class="btn btn-ghost btn-sm" id="btn-upload-config" onclick="document.getElementById('vpn-config-file').click()" title="Upload .ovpn file">📁</button>
             <button class="btn btn-ghost btn-sm" id="btn-reload-configs" onclick="loadConfigs()" title="Reload endpoint list">⟳</button>
           </div>
+          <input type="file" id="vpn-config-file" accept=".ovpn" style="display:none" onchange="uploadConfig(this)" />
           <div class="text-xs mt-1" style="color:var(--txt2)">
-            Place <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">.ovpn</code>
-            files in <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">./config/vpn/</code>.
-            See README.
+            Upload a <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">.ovpn</code>
+            file via 📁, or place files in <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">./config/vpn/</code>.
           </div>
         </div>
 
@@ -932,6 +933,49 @@ function fallbackCopy(text) {
     log('Failed to copy URL', 'warn');
   }
   document.body.removeChild(ta);
+}
+
+// ── Upload a .ovpn config file from the local file system ────────────────────
+async function uploadConfig(input) {
+  const file = input.files[0];
+  // Reset the input so the same file can be re-uploaded if needed
+  input.value = '';
+  if (!file) return;
+
+  const btn = document.getElementById('btn-upload-config');
+  if (btn) btn.disabled = true;
+  setMsg('vpn-msg', '⏳ Uploading config…', 'var(--yellow)');
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const bytes  = new Uint8Array(buffer);
+    // Convert bytes to base64 without O(n²) string concatenation
+    const binary = Array.from(bytes, b => String.fromCharCode(b)).join('');
+    const content = btoa(binary);
+
+    const r = await post('/api/vpn/configs/upload', { filename: file.name, content });
+    if (r.error) {
+      setMsg('vpn-msg', `✗ Upload failed: ${r.error}`, 'var(--red)');
+    } else {
+      setMsg('vpn-msg', `✓ Uploaded ${esc(r.saved.name)}`, 'var(--green)');
+      // Refresh the dropdown and auto-select the just-uploaded config
+      const sel = document.getElementById('vpn-endpoint');
+      sel.innerHTML = r.configs && r.configs.length
+        ? '<option value="">— select endpoint —</option>' +
+          r.configs.map(c => `<option value="${esc(c.file)}">${esc(c.name)}</option>`).join('')
+        : '<option value="">No .ovpn files found</option>';
+      const newOpt = Array.from(sel.options).find(o => o.value === r.saved.file);
+      if (newOpt) {
+        sel.value = r.saved.file;
+        scheduleSave('vpnEndpoint', r.saved.file);
+      }
+      log(`Config uploaded: ${esc(r.saved.name)}`, 'ok');
+    }
+  } catch (e) {
+    setMsg('vpn-msg', `✗ Upload error: ${e.message}`, 'var(--red)');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ── Populate VPN endpoint selector on load ────────────────────────────────────

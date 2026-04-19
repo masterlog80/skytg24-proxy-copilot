@@ -33,6 +33,35 @@ class VPNManager extends EventEmitter {
     };
   }
 
+  /** Save an uploaded .ovpn file to VPN_CONFIG_DIR.
+   *  @param {string} filename  – basename only (e.g. "milan-duomo.ovpn")
+   *  @param {Buffer} buffer    – raw file bytes
+   *  @returns {{ file, name }} – the saved config entry
+   */
+  async saveConfig(filename, buffer) {
+    if (path.basename(filename) !== filename) {
+      throw new Error('Filename must not contain directory paths');
+    }
+    if (!filename.toLowerCase().endsWith('.ovpn')) {
+      throw new Error('Only .ovpn files are accepted');
+    }
+    await fs.promises.mkdir(VPN_CONFIG_DIR, { recursive: true });
+    const dest = path.join(VPN_CONFIG_DIR, filename);
+    // Open with O_WRONLY|O_CREAT|O_TRUNC and mode 0o600 in a single syscall
+    // to avoid a race condition where the file briefly exists with default permissions.
+    const fh = await fs.promises.open(dest, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC, 0o600);
+    try {
+      await fh.writeFile(buffer);
+    } finally {
+      await fh.close();
+    }
+    const name = filename
+      .replace(/\.ovpn$/i, '')
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+    return { file: filename, name };
+  }
+
   /** Return array of { file, name } for every .ovpn file in VPN_CONFIG_DIR */
   async listConfigs() {
     try {
