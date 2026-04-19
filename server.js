@@ -16,9 +16,37 @@ const server = http.createServer(app);
 const wss    = new WebSocket.Server({ server });
 
 const vpnManager      = new VPNManager();
-const streamManager   = new StreamManager();
+const streamManager   = new StreamManager(() => vpnManager.getStatus());
 const statsMonitor    = new StatsMonitor();
 const settingsManager = new SettingsManager();
+
+// ── Server-side event log ─────────────────────────────────────────────────────
+// Circular buffer (max 200 entries) shared between VPN and Stream events.
+// Entries are pushed to every connected WebSocket client on the next tick so
+// that the browser's 🖥 Event Log receives server-side errors in real time.
+const SERVER_LOG_MAX = 200;
+const serverLog = [];
+let   _logSeq   = 0;
+
+function addServerLog(msg, type = 'info') {
+  serverLog.push({ id: ++_logSeq, ts: Date.now(), msg, type });
+  if (serverLog.length > SERVER_LOG_MAX) serverLog.shift();
+}
+
+// Relay StreamManager log events (CDN errors, proxy start/stop, etc.)
+streamManager.on('log', ({ msg, type }) => addServerLog(msg, type));
+
+// Relay meaningful VPN state transitions so the Event Log shows, for example,
+// "VPN disconnected" right before a CDN geo-block error.
+vpnManager.on('status', (state) => {
+  if (state.status === 'connected') {
+    addServerLog(`VPN connected – endpoint: ${state.endpoint}, IP: ${state.ip || '?'}`, 'ok');
+  } else if (state.status === 'error') {
+    addServerLog(`VPN error: ${state.error}`, 'err');
+  } else if (state.status === 'disconnected') {
+    addServerLog('VPN disconnected', 'warn');
+  }
+});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -145,14 +173,23 @@ app.get('/api/stats', async (_req, res) => {
 // ── WebSocket – push live state every second ─────────────────────────────────
 
 wss.on('connection', (ws) => {
+  // Track the last log entry id sent to this particular client so that each
+  // push only includes new entries (delta), keeping bandwidth low even when
+  // the circular buffer is full.  On first push all buffered entries are
+  // forwarded so the client gets a backfill of recent events on connect.
+  let lastSentLogId = 0;
+
   const interval = setInterval(async () => {
     if (ws.readyState !== WebSocket.OPEN) return;
     try {
+      const newEntries = serverLog.filter(e => e.id > lastSentLogId);
+      if (newEntries.length > 0) lastSentLogId = newEntries[newEntries.length - 1].id;
       ws.send(JSON.stringify({
-        vpn:    vpnManager.getStatus(),
-        stream: streamManager.getStatus(),
-        stats:  await statsMonitor.getStats(),
-        ts:     Date.now(),
+        vpn:       vpnManager.getStatus(),
+        stream:    streamManager.getStatus(),
+        stats:     await statsMonitor.getStats(),
+        serverLog: newEntries,
+        ts:        Date.now(),
       }));
     } catch (_) { /* ignore */ }
   }, 1000);
@@ -165,6 +202,9 @@ wss.on('connection', (ws) => {
 
 vpnManager.on('status', (state) => {
   if (state.status === 'disconnected' || state.status === 'error') {
+    if (streamManager.getStatus().active) {
+      addServerLog('Stream proxy stopped because VPN dropped', 'warn');
+    }
     streamManager.stopProxy().catch(() => {});
   }
 });

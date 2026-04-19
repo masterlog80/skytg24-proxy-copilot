@@ -534,10 +534,23 @@ function initWS() {
 initWS();
 
 // ── State handlers ────────────────────────────────────────────────────────────
-function applyState({ vpn, stream, stats }) {
+// Track the last server-log entry id we've already displayed so that each
+// entry is appended to the Event Log exactly once across WebSocket updates.
+let _lastServerLogId = 0;
+
+function applyState({ vpn, stream, stats, serverLog }) {
   if (vpn)    renderVPN(vpn);
   if (stream) renderStream(stream);
   if (stats)  renderStats(stats);
+  if (Array.isArray(serverLog)) {
+    for (const entry of serverLog) {
+      if (entry.id > _lastServerLogId) {
+        _lastServerLogId = entry.id;
+        const ts = new Date(entry.ts).toLocaleTimeString();
+        log(`[server ${ts}] ${entry.msg}`, entry.type || 'info');
+      }
+    }
+  }
 }
 
 function renderVPN(v) {
