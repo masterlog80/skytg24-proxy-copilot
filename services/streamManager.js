@@ -84,6 +84,7 @@ class StreamManager extends EventEmitter {
       sourceUrl:   null,
       resolution:  null,
       frameRate:   null,
+      bitrate:     null,
     };
   }
 
@@ -490,7 +491,7 @@ class StreamManager extends EventEmitter {
         this._server = srv;
         this._clientLastSeen.clear();
         this._prevClientCount = 0;
-        this._state  = { active: true, port, sourceUrl, resolution: null, frameRate: null };
+        this._state  = { active: true, port, sourceUrl, resolution: null, frameRate: null, bitrate: null };
         if (sourceUrl) {
           this._log(`Proxy started on port ${port}. Source URL: ${sourceUrl}${this._vpnContext()}`, 'ok');
           // Fetch stream info immediately, then poll on an interval
@@ -516,13 +517,13 @@ class StreamManager extends EventEmitter {
       this._clientLastSeen.clear();
       this._prevClientCount = 0;
       if (!this._server) {
-        this._state = { active: false, port: null, sourceUrl: null, resolution: null, frameRate: null };
+        this._state = { active: false, port: null, sourceUrl: null, resolution: null, frameRate: null, bitrate: null };
         return resolve();
       }
       this._log('Proxy stopped', 'warn');
       this._server.close(() => {
         this._server = null;
-        this._state  = { active: false, port: null, sourceUrl: null, resolution: null, frameRate: null };
+        this._state  = { active: false, port: null, sourceUrl: null, resolution: null, frameRate: null, bitrate: null };
         resolve();
       });
       // Force-close any lingering keep-alive connections
@@ -554,6 +555,7 @@ class StreamManager extends EventEmitter {
       this._pollInterval   = null;
       this._state.resolution = null;
       this._state.frameRate  = null;
+      this._state.bitrate    = null;
     }
   }
 
@@ -622,6 +624,7 @@ class StreamManager extends EventEmitter {
 
       if (bestResolution !== null) this._state.resolution = bestResolution;
       if (bestFrameRate  !== null) this._state.frameRate  = bestFrameRate;
+      if (bestBandwidth  > 0)     this._state.bitrate     = bestBandwidth;
     } catch (_) { /* ignore – proxy operation must not be affected */ }
   }
 
