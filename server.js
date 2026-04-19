@@ -200,14 +200,23 @@ wss.on('connection', (ws) => {
 
 // ── Auto-stop stream when VPN drops / auto-fetch URL when VPN connects ────────
 
+let _prevVpnStatusForStream = null;
+
 vpnManager.on('status', (state) => {
+  const prev = _prevVpnStatusForStream;
+  _prevVpnStatusForStream = state.status;
+
   if (state.status === 'disconnected' || state.status === 'error') {
     if (streamManager.getStatus().sourceUrl) {
       addServerLog('Stream URL cleared because VPN dropped', 'warn');
     }
     streamManager.setSourceUrl(null);
-  } else if (state.status === 'connected' && !streamManager.getStatus().sourceUrl) {
-    // VPN just came up – auto-detect the live stream URL
+  } else if (state.status === 'connected' && prev !== 'connected') {
+    // VPN just came up – always clear the old URL and re-fetch a fresh one
+    if (streamManager.getStatus().sourceUrl) {
+      addServerLog('Stream URL cleared for fresh VPN connection', 'info');
+    }
+    streamManager.setSourceUrl(null);
     autoFetchStreamUrl().catch(() => {});
   }
 });

@@ -635,10 +635,13 @@ function applyState({ vpn, stream, stats, serverLog }) {
 function renderVPN(v) {
   const { status, endpoint, ip, error } = v;
 
-  // Auto-start URL detection when the VPN first becomes connected
+  // Every time the VPN connects, clear the old URL and fetch a fresh one
   if (status === 'connected' && _prevVpnStatus !== 'connected') {
-    if (!_isFetching && !_streamActive) {
-      log('VPN connected – auto-starting stream URL detection…', 'info');
+    document.getElementById('stream-url').value         = '';
+    document.getElementById('detected-url').textContent = 'Fetching…';
+    document.getElementById('detected-url').style.color = 'var(--yellow)';
+    if (!_isFetching) {
+      log('VPN connected – clearing and re-fetching Live Stream URL…', 'info');
       fetchURL().catch(e => log(`Auto-detect error: ${e.message}`, 'err'));
     }
   }
