@@ -198,7 +198,7 @@ wss.on('connection', (ws) => {
   ws.on('error', () => clearInterval(interval));
 });
 
-// ── Auto-stop stream when VPN drops ─────────────────────────────────────────
+// ── Auto-stop stream when VPN drops / auto-fetch URL when VPN connects ────────
 
 vpnManager.on('status', (state) => {
   if (state.status === 'disconnected' || state.status === 'error') {
@@ -206,6 +206,9 @@ vpnManager.on('status', (state) => {
       addServerLog('Stream URL cleared because VPN dropped', 'warn');
     }
     streamManager.setSourceUrl(null);
+  } else if (state.status === 'connected' && !streamManager.getStatus().sourceUrl) {
+    // VPN just came up – auto-detect the live stream URL
+    autoFetchStreamUrl().catch(() => {});
   }
 });
 
@@ -287,13 +290,6 @@ streamManager.on('noClientsLeft', () => {
     streamManager.setSourceUrl(null);
     await vpnManager.disconnect().catch(() => {});
   }, NO_CLIENT_DISCONNECT_MS);
-});
-
-// VPN connected → auto-fetch stream URL if not already available
-vpnManager.on('status', (state) => {
-  if (state.status === 'connected' && !streamManager.getStatus().sourceUrl) {
-    autoFetchStreamUrl().catch(() => {});
-  }
 });
 
 // ── Start ────────────────────────────────────────────────────────────────────

@@ -496,14 +496,11 @@ class StreamManager extends EventEmitter {
     }
     const count = this._clientLastSeen.size;
     if (this._prevClientCount === 0 && count >= 1) {
-      this._prevClientCount = count;
       this.emit('firstClientConnected');
     } else if (this._prevClientCount >= 1 && count === 0) {
-      this._prevClientCount = count;
       this.emit('noClientsLeft');
-    } else {
-      this._prevClientCount = count;
     }
+    this._prevClientCount = count;
     return count;
   }
 
