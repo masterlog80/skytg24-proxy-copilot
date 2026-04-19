@@ -16,6 +16,7 @@ const DEFAULTS = {
   fetchSearchString:        '',
   fetchMaxAttempts:         0,
   fetchRetryDelaySec:       0,
+  fetchLiveUrlEnabled:      true, // when false, skip auto-detection and use fallback URL immediately
   vpnDisconnectTimeoutMin:  5,  // minutes before VPN is disconnected when no clients remain; 0 = disabled
 };
 
