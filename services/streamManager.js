@@ -572,8 +572,11 @@ class StreamManager extends EventEmitter {
   _rewritePlaylist(content, baseUrl, proxyHost) {
     const base      = new URL(baseUrl);
     const proxyBase = `http://${proxyHost}/proxy?url=`;
-    // Directory prefix of the base URL (everything up to and including the last '/').
-    const dir       = base.href.substring(0, base.href.lastIndexOf('/') + 1);
+    // Directory prefix of the base URL, derived from the path only (not href)
+    // so that query-string tokens containing '/' (e.g. Akamai acl=/*~hmac=…)
+    // do not corrupt the resolved base directory for relative playlist entries.
+    const pathDir   = base.pathname.substring(0, base.pathname.lastIndexOf('/') + 1);
+    const dir       = `${base.protocol}//${base.host}${pathDir}`;
 
     // Resolve a URI from the playlist (absolute or relative) into a fully
     // proxied URL pointing back to our /proxy endpoint.
