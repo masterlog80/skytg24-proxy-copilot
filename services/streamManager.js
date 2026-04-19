@@ -326,42 +326,116 @@ class StreamManager extends EventEmitter {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #000; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: sans-serif; }
     video { width: 100%; max-height: 100vh; }
-    #msg { color: #fff; font-size: 16px; padding: 16px; text-align: center; }
+    #overlay {
+      position: fixed; inset: 0;
+      background: #000;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 20px;
+    }
+    #overlay.hidden { display: none; }
+    #spinner {
+      width: 48px; height: 48px;
+      border: 4px solid rgba(255,255,255,.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #msg { color: #fff; font-size: 16px; text-align: center; padding: 0 24px; }
+    #msg.error { color: #f85149; }
+    #msg.error ~ #spinner { display: none; }
   </style>
 </head>
 <body>
-  <div id="msg">Loading player…</div>
+  <div id="overlay">
+    <div id="spinner"></div>
+    <div id="msg">Connecting… waiting for VPN and stream URL</div>
+  </div>
   <video id="video" controls autoplay muted playsinline style="display:none" aria-label="Sky TG24 Live Stream"></video>
   <script src="/hls.min.js"></script>
   <script>
-    const video = document.getElementById('video');
-    const msgEl = document.getElementById('msg');
+    const video   = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const msgEl   = document.getElementById('msg');
+    const spinner = document.getElementById('spinner');
     const streamUrl = window.location.origin + '/stream';
+
+    // How long (ms) to wait before retrying after a fatal error
+    const RETRY_DELAY_MS = 5000;
+    // XHR timeout passed to hls.js for manifest/segment requests
+    const XHR_TIMEOUT_MS = 10000;
+    // Give up showing loading state after this many consecutive fatal errors
+    // (roughly 5 min at 5 s intervals) and show a real error instead
+    const MAX_RETRIES = 60;
+    // Default loading message shown while waiting for VPN and stream URL
+    const MSG_LOADING = 'Connecting\u2026 waiting for VPN and stream URL';
+
+    let retryCount = 0;
+    let retryTimer = null;
+    let hlsInstance = null;
+
+    function showLoading(text) {
+      msgEl.textContent = text || MSG_LOADING;
+      msgEl.className = '';
+      spinner.style.display = '';
+      overlay.classList.remove('hidden');
+    }
 
     function showError(text) {
       msgEl.textContent = text;
-      msgEl.style.display = 'block';
+      msgEl.className = 'error';
+      spinner.style.display = 'none';
+      overlay.classList.remove('hidden');
+      video.style.display = 'none';
+    }
+
+    function showPlayer() {
+      overlay.classList.add('hidden');
+      video.style.display = '';
+      retryCount = 0;
+    }
+
+    function destroyHls() {
+      if (hlsInstance) {
+        try { hlsInstance.destroy(); } catch (_) {}
+        hlsInstance = null;
+      }
+    }
+
+    function startHls() {
+      destroyHls();
+      const hls = new Hls({ xhrSetup: function(xhr) { xhr.timeout = XHR_TIMEOUT_MS; } });
+      hlsInstance = hls;
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        showPlayer();
+        video.play().catch(function() {});
+      });
+
+      hls.on(Hls.Events.ERROR, function(_, data) {
+        if (!data.fatal) return;
+        retryCount++;
+        if (retryCount > MAX_RETRIES) {
+          destroyHls();
+          showError('Stream error (' + data.type + '). Make sure the proxy is running and VPN is connected.');
+          return;
+        }
+        showLoading(MSG_LOADING + ' (retry ' + retryCount + ')');
+        destroyHls();
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(startHls, RETRY_DELAY_MS);
+      });
     }
 
     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-      const hls = new Hls();
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function() {
-        msgEl.style.display = 'none';
-        video.style.display = '';
-        video.play().catch(function() {});
-      });
-      hls.on(Hls.Events.ERROR, function(_, data) {
-        if (data.fatal) {
-          showError('Stream error (' + data.type + '). Make sure the proxy is running and VPN is connected.');
-        }
-      });
+      showLoading();
+      startHls();
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari native HLS
-      msgEl.style.display = 'none';
-      video.style.display = '';
+      // Safari native HLS – show loading overlay until the video starts
       video.src = streamUrl;
+      video.addEventListener('canplay', showPlayer, { once: true });
       video.play().catch(function() {});
     } else {
       showError('HLS playback is not supported in this browser. Open the stream URL in VLC instead.');
