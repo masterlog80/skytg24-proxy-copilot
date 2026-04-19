@@ -568,7 +568,7 @@ function renderVPN(v) {
   if (status === 'connected' && _prevVpnStatus !== 'connected') {
     if (!_isFetching && !_streamActive) {
       log('VPN connected – auto-starting stream URL detection…', 'info');
-      fetchURL();
+      fetchURL().catch(e => log(`Auto-detect error: ${e.message}`, 'err'));
     }
   }
   _prevVpnStatus = status;
@@ -730,12 +730,12 @@ async function fetchURL() {
         setMsg('stream-msg', '✓ URL detected – starting proxy…', 'var(--green)');
         log(`Stream URL detected (attempt ${attempt}, IP: ${externalIp}): ${r.url}`, 'ok');
         btn.disabled = false;
-        _isFetching = false;
         // Auto-start the stream proxy now that we have a live URL
         if (!_streamActive) {
           log('Auto-starting stream proxy…', 'info');
           await startStream();
         }
+        _isFetching = false;
         return;
       }
       // Got a response but the URL does not contain the search string
