@@ -890,9 +890,30 @@ async function stopStream() {
 
 function copyURL() {
   const t = document.getElementById('local-url-text').textContent;
-  navigator.clipboard?.writeText(t)
-    .then(() => log('URL copied to clipboard', 'info'))
-    .catch(() => {});
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(t)
+      .then(() => log('URL copied to clipboard', 'info'))
+      .catch(() => fallbackCopy(t));
+  } else {
+    fallbackCopy(t);
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+    log('URL copied to clipboard', 'info');
+  } catch (e) {
+    log('Failed to copy URL', 'warn');
+  }
+  document.body.removeChild(ta);
 }
 
 // ── Populate VPN endpoint selector on load ────────────────────────────────────
