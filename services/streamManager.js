@@ -73,11 +73,12 @@ class StreamManager extends EventEmitter {
    */
   constructor(getVpnStatus) {
     super();
-    this._getVpnStatus = typeof getVpnStatus === 'function' ? getVpnStatus : null;
-    this._server       = null;
-    this._pollInterval = null;
+    this._getVpnStatus   = typeof getVpnStatus === 'function' ? getVpnStatus : null;
+    this._server         = null;
+    this._pollInterval   = null;
     this._clientLastSeen = new Map(); // ip → timestamp of last /stream or /proxy request
-    this._state        = {
+    this._prevClientCount = 0;        // used to detect 0↔≥1 transitions for events
+    this._state          = {
       active:      false,
       port:        null,
       sourceUrl:   null,
@@ -274,8 +275,11 @@ class StreamManager extends EventEmitter {
     }
   }
 
-  /** Start the HLS reverse-proxy on *port* forwarding *sourceUrl* */
-  async startProxy(sourceUrl, port) {
+  /** Start the HLS reverse-proxy on *port* forwarding *sourceUrl*.
+   *  *sourceUrl* is optional; if omitted the proxy starts in "waiting" mode and
+   *  returns HTTP 503 on /stream until setSourceUrl() is called.
+   */
+  async startProxy(sourceUrl = null, port) {
     if (this._server) await this.stopProxy();
 
     const app = express();
@@ -291,10 +295,15 @@ class StreamManager extends EventEmitter {
 
     // Track unique client IPs on stream/proxy requests so that clientCount
     // reflects real viewers rather than individual HTTP request cycles.
+    // Also emits 'firstClientConnected' / 'noClientsLeft' events when the
+    // count crosses the 0 ↔ ≥1 boundary.
     app.use((req, _res, next) => {
       if (req.path === '/stream' || req.path === '/proxy') {
         const ip = req.ip || req.socket?.remoteAddress;
-        if (ip) this._clientLastSeen.set(ip, Date.now());
+        if (ip) {
+          this._clientLastSeen.set(ip, Date.now());
+          this._updateClientCount();
+        }
       }
       next();
     });
@@ -372,7 +381,9 @@ class StreamManager extends EventEmitter {
     });
 
     app.get('/stream', async (req, res) => {
-      try { await this._proxy(sourceUrl, req, res); }
+      const url = this._state.sourceUrl;
+      if (!url) return res.status(503).send('Stream not available yet. Waiting for VPN connection and URL detection.');
+      try { await this._proxy(url, req, res); }
       catch (e) { res.status(502).send(e.message); }
     });
 
@@ -400,11 +411,16 @@ class StreamManager extends EventEmitter {
       srv.listen(port, '0.0.0.0', () => {
         this._server = srv;
         this._clientLastSeen.clear();
+        this._prevClientCount = 0;
         this._state  = { active: true, port, sourceUrl, resolution: null, frameRate: null };
-        this._log(`Proxy started on port ${port}. Source URL: ${sourceUrl}${this._vpnContext()}`, 'ok');
-        // Fetch stream info immediately, then poll on an interval
-        this._fetchStreamInfo();
-        this._pollInterval = setInterval(() => this._fetchStreamInfo(), STREAM_INFO_POLL_MS);
+        if (sourceUrl) {
+          this._log(`Proxy started on port ${port}. Source URL: ${sourceUrl}${this._vpnContext()}`, 'ok');
+          // Fetch stream info immediately, then poll on an interval
+          this._fetchStreamInfo();
+          this._pollInterval = setInterval(() => this._fetchStreamInfo(), STREAM_INFO_POLL_MS);
+        } else {
+          this._log(`Proxy started on port ${port}. Waiting for stream URL.`, 'ok');
+        }
         resolve();
       });
       srv.on('error', (err) => {
@@ -420,6 +436,7 @@ class StreamManager extends EventEmitter {
       clearInterval(this._pollInterval);
       this._pollInterval = null;
       this._clientLastSeen.clear();
+      this._prevClientCount = 0;
       if (!this._server) {
         this._state = { active: false, port: null, sourceUrl: null, resolution: null, frameRate: null };
         return resolve();
@@ -436,16 +453,59 @@ class StreamManager extends EventEmitter {
   }
 
   getStatus() {
-    const now = Date.now();
-    // Prune stale entries and count IPs active within the sliding window.
-    for (const [ip, ts] of this._clientLastSeen) {
-      if (now - ts >= CLIENT_ACTIVE_MS) this._clientLastSeen.delete(ip);
-    }
-    const clientCount = this._clientLastSeen.size;
+    const clientCount = this._updateClientCount();
     return { ...this._state, clientCount };
   }
 
+  /**
+   * Update the live stream source URL on the running proxy without restarting
+   * the server.  Pass null to clear the URL (proxy will return 503 until a
+   * new URL is provided).
+   *
+   * @param {string|null} url
+   */
+  setSourceUrl(url) {
+    this._state.sourceUrl = url || null;
+    if (url) {
+      this._fetchStreamInfo();
+      if (!this._pollInterval) {
+        this._pollInterval = setInterval(() => this._fetchStreamInfo(), STREAM_INFO_POLL_MS);
+      }
+    } else {
+      clearInterval(this._pollInterval);
+      this._pollInterval   = null;
+      this._state.resolution = null;
+      this._state.frameRate  = null;
+    }
+  }
+
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Prune stale client entries, compute the current active-client count, and
+   * emit 'firstClientConnected' or 'noClientsLeft' when the count crosses the
+   * 0 ↔ ≥1 boundary.  Called both from the request middleware (immediate) and
+   * from getStatus() (periodic via the WebSocket ticker).
+   *
+   * @returns {number} current active client count
+   */
+  _updateClientCount() {
+    const now = Date.now();
+    for (const [ip, ts] of this._clientLastSeen) {
+      if (now - ts >= CLIENT_ACTIVE_MS) this._clientLastSeen.delete(ip);
+    }
+    const count = this._clientLastSeen.size;
+    if (this._prevClientCount === 0 && count >= 1) {
+      this._prevClientCount = count;
+      this.emit('firstClientConnected');
+    } else if (this._prevClientCount >= 1 && count === 0) {
+      this._prevClientCount = count;
+      this.emit('noClientsLeft');
+    } else {
+      this._prevClientCount = count;
+    }
+    return count;
+  }
 
   /**
    * Fetch the HLS master playlist and extract the resolution and frame-rate of
