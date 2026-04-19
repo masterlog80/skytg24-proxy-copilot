@@ -6,16 +6,17 @@ const path = require('path');
 const SETTINGS_FILE = process.env.SETTINGS_FILE || '/config/settings.json';
 
 const DEFAULTS = {
-  vpnEndpoint:        '',
-  vpnUsername:        '',
-  vpnPassword:        '',
-  streamPort:         6443,
-  streamUrl:          '',
-  streamFallbackUrl:  '',
-  fetchTargetUrl:     '',
-  fetchSearchString:  '',
-  fetchMaxAttempts:   0,
-  fetchRetryDelaySec: 0,
+  vpnEndpoint:              '',
+  vpnUsername:              '',
+  vpnPassword:              '',
+  streamPort:               6443,
+  streamUrl:                '',
+  streamFallbackUrl:        '',
+  fetchTargetUrl:           '',
+  fetchSearchString:        '',
+  fetchMaxAttempts:         0,
+  fetchRetryDelaySec:       0,
+  vpnDisconnectTimeoutMin:  5,  // minutes before VPN is disconnected when no clients remain; 0 = disabled
 };
 
 class SettingsManager {
