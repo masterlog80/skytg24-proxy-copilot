@@ -263,6 +263,17 @@ async function autoFetchStreamUrl() {
   if (_autoFetchActive) return;
   _autoFetchActive = true;
   try {
+    const s = settingsManager.get();
+    if (s.fetchLiveUrlEnabled === false) {
+      const fallback = s.streamFallbackUrl || s.streamUrl;
+      if (fallback) {
+        streamManager.setSourceUrl(fallback);
+        addServerLog(`Live URL auto-detection disabled – using fallback URL: ${fallback}`, 'info');
+      } else {
+        addServerLog('Live URL auto-detection disabled and no fallback URL configured; proxy will serve 503 until a URL is set', 'warn');
+      }
+      return;
+    }
     addServerLog('Auto-detecting Live Stream URL…', 'info');
     const url = await streamManager.fetchSkyUrl();
     streamManager.setSourceUrl(url);

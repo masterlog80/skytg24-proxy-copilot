@@ -320,6 +320,15 @@
       </div>
       <div class="flex flex-col gap-3">
 
+        <div class="flex items-center gap-2" style="padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px">
+          <input type="checkbox" id="fetch-live-url-enabled" style="width:auto;cursor:pointer" aria-labelledby="fetch-live-url-enabled-label" />
+          <label id="fetch-live-url-enabled-label" for="fetch-live-url-enabled" style="margin:0;cursor:pointer;color:var(--txt);font-size:13px">
+            Enable fetching the <strong>Live Stream URL</strong> from the Target URL
+          </label>
+        </div>
+
+        <div id="fetch-config-section">
+
         <div>
           <label>Target URL <span style="color:var(--txt2)">(page to load for stream detection)</span></label>
           <input type="text" id="fetch-target-url" placeholder="https://tg24.sky.it/diretta" />
@@ -343,8 +352,10 @@
           </div>
         </div>
 
+        </div><!-- /fetch-config-section -->
+
         <div>
-          <label>Live Stream URL <span style="color:var(--blue)">(auto-detected from Sky TG24)</span></label>
+          <label>Live Stream URL <span style="color:var(--blue)" id="live-url-label-hint">(auto-detected from Sky TG24)</span></label>
           <div class="flex gap-2">
             <input type="text" id="stream-url" placeholder="Click ↺ to fetch from tg24.sky.it/diretta …" />
             <button class="btn btn-ghost" id="btn-fetch" onclick="fetchURL()" title="Fetch live URL from Sky TG24" style="padding:8px 12px">↺</button>
@@ -489,6 +500,29 @@ function getFetchConfig() {
   const maxAttempts  = Math.max(1, parseInt(document.getElementById('fetch-max-attempts').value,  10) || DEFAULT_FETCH_MAX_ATTEMPTS);
   const retryDelaySec = Math.max(1, parseInt(document.getElementById('fetch-retry-delay').value, 10) || DEFAULT_FETCH_RETRY_DELAY_S);
   return { targetUrl, searchString, maxAttempts, retryDelayMs: retryDelaySec * 1000 };
+}
+
+/** Return whether fetching the live URL from the Target URL is currently enabled */
+function getFetchLiveUrlEnabled() {
+  return document.getElementById('fetch-live-url-enabled').checked;
+}
+
+/** Apply the fetch-live-url-enabled toggle state to the UI */
+function applyFetchLiveUrlEnabled(enabled) {
+  const section = document.getElementById('fetch-config-section');
+  const btnFetch = document.getElementById('btn-fetch');
+  const hint = document.getElementById('live-url-label-hint');
+  if (enabled) {
+    section.style.display = '';
+    btnFetch.style.display = '';
+    hint.textContent = '(auto-detected from Sky TG24)';
+    hint.style.color = 'var(--blue)';
+  } else {
+    section.style.display = 'none';
+    btnFetch.style.display = 'none';
+    hint.textContent = '(auto-detection disabled – using Fallback URL)';
+    hint.style.color = 'var(--yellow)';
+  }
 }
 
 // ── Chart ────────────────────────────────────────────────────────────────────
@@ -656,8 +690,24 @@ function renderVPN(v) {
     document.getElementById('detected-url').textContent = 'Fetching…';
     document.getElementById('detected-url').style.color = 'var(--yellow)';
     if (!_isFetching) {
-      log('VPN connected – clearing and re-fetching Live Stream URL…', 'info');
-      fetchURL().catch(e => log(`Auto-detect error: ${e.message}`, 'err'));
+      const fetchEnabled = getFetchLiveUrlEnabled();
+      if (fetchEnabled) {
+        log('VPN connected – clearing and re-fetching Live Stream URL…', 'info');
+        fetchURL().catch(e => log(`Auto-detect error: ${e.message}`, 'err'));
+      } else {
+        log('VPN connected – live URL fetch disabled, using Fallback URL…', 'info');
+        const fb = document.getElementById('stream-fallback').value.trim();
+        if (fb) {
+          document.getElementById('stream-url').value         = fb;
+          document.getElementById('detected-url').textContent = fb;
+          document.getElementById('detected-url').style.color = 'var(--txt2)';
+          if (!_streamActive) startStream().catch(e => log(`Auto-start error: ${e.message}`, 'err'));
+        } else {
+          document.getElementById('detected-url').textContent = '—';
+          document.getElementById('detected-url').style.color = 'var(--txt2)';
+          log('Live URL fetch disabled and no Fallback URL configured', 'warn');
+        }
+      }
     }
   }
   _prevVpnStatus = status;
@@ -811,6 +861,21 @@ async function fetchURL() {
   const btn = document.getElementById('btn-fetch');
   btn.disabled = true;
   _isFetching = true;
+
+  // If auto-detection is disabled, fall through to fallback immediately
+  const fetchEnabled = getFetchLiveUrlEnabled();
+  if (!fetchEnabled) {
+    const fb = document.getElementById('stream-fallback').value.trim();
+    if (fb) {
+      document.getElementById('stream-url').value = fb;
+      log('Live URL fetch disabled – using Fallback URL', 'warn');
+    } else {
+      log('Live URL fetch disabled and no Fallback URL configured', 'warn');
+    }
+    btn.disabled = false;
+    _isFetching = false;
+    return;
+  }
 
   const { targetUrl, searchString, maxAttempts, retryDelayMs } = getFetchConfig();
 
@@ -1053,6 +1118,9 @@ async function loadSettings() {
     if (s.fetchMaxAttempts)   document.getElementById('fetch-max-attempts').value  = s.fetchMaxAttempts;
     if (s.fetchRetryDelaySec) document.getElementById('fetch-retry-delay').value   = s.fetchRetryDelaySec;
     if (s.vpnDisconnectTimeoutMin != null) document.getElementById('vpn-disconnect-timeout').value = s.vpnDisconnectTimeoutMin;
+    const fetchEnabled = s.fetchLiveUrlEnabled !== false; // default true
+    document.getElementById('fetch-live-url-enabled').checked = fetchEnabled;
+    applyFetchLiveUrlEnabled(fetchEnabled);
     return s;
   } catch { return {}; }
 }
@@ -1064,6 +1132,9 @@ async function init() {
   document.getElementById('fetch-search-string').value = DEFAULT_FETCH_SEARCH_STRING;
   document.getElementById('fetch-max-attempts').value  = DEFAULT_FETCH_MAX_ATTEMPTS;
   document.getElementById('fetch-retry-delay').value   = DEFAULT_FETCH_RETRY_DELAY_S;
+  // Apply default toggle state (enabled) before settings are loaded
+  document.getElementById('fetch-live-url-enabled').checked = true;
+  applyFetchLiveUrlEnabled(true);
 
   const [, settings] = await Promise.all([loadConfigs(), loadSettings()]);
   if (settings.vpnEndpoint) {
@@ -1095,6 +1166,11 @@ document.getElementById('fetch-max-attempts').addEventListener('input',
   e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) scheduleSave('fetchMaxAttempts', v); });
 document.getElementById('fetch-retry-delay').addEventListener('input',
   e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) scheduleSave('fetchRetryDelaySec', v); });
+document.getElementById('fetch-live-url-enabled').addEventListener('change', e => {
+  const enabled = e.target.checked;
+  applyFetchLiveUrlEnabled(enabled);
+  scheduleSave('fetchLiveUrlEnabled', enabled);
+});
 document.getElementById('vpn-disconnect-timeout').addEventListener('input',
   e => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) scheduleSave('vpnDisconnectTimeoutMin', v); });
 
