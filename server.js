@@ -173,14 +173,22 @@ app.get('/api/stats', async (_req, res) => {
 // ── WebSocket – push live state every second ─────────────────────────────────
 
 wss.on('connection', (ws) => {
+  // Track the last log entry id sent to this particular client so that each
+  // push only includes new entries (delta), keeping bandwidth low even when
+  // the circular buffer is full.  On first push all buffered entries are
+  // forwarded so the client gets a backfill of recent events on connect.
+  let lastSentLogId = 0;
+
   const interval = setInterval(async () => {
     if (ws.readyState !== WebSocket.OPEN) return;
     try {
+      const newEntries = serverLog.filter(e => e.id > lastSentLogId);
+      if (newEntries.length > 0) lastSentLogId = newEntries[newEntries.length - 1].id;
       ws.send(JSON.stringify({
         vpn:       vpnManager.getStatus(),
         stream:    streamManager.getStatus(),
         stats:     await statsMonitor.getStats(),
-        serverLog: serverLog.slice(),   // send a snapshot of the circular buffer
+        serverLog: newEntries,
         ts:        Date.now(),
       }));
     } catch (_) { /* ignore */ }
