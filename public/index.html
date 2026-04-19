@@ -735,7 +735,7 @@ function renderStream(st) {
     fps.style.color = 'var(--txt2)';
   }
 
-  // Bitrate chip
+  // Bitrate chip (BANDWIDTH from HLS manifest is in bits/sec; divide by 1000 for SI kbps)
   if (st.bitrate != null) {
     bps.textContent = Math.round(st.bitrate / 1000).toLocaleString();
     bps.style.color = 'var(--blue)';
