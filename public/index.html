@@ -957,6 +957,10 @@ async function loadSettings() {
     if (s.streamFallbackUrl) document.getElementById('stream-fallback').value = s.streamFallbackUrl;
     if (s.vpnUsername)       document.getElementById('vpn-user').value        = s.vpnUsername;
     if (s.vpnPassword)       document.getElementById('vpn-pass').value        = s.vpnPassword;
+    if (s.fetchTargetUrl)     document.getElementById('fetch-target-url').value    = s.fetchTargetUrl;
+    if (s.fetchSearchString)  document.getElementById('fetch-search-string').value = s.fetchSearchString;
+    if (s.fetchMaxAttempts)   document.getElementById('fetch-max-attempts').value  = s.fetchMaxAttempts;
+    if (s.fetchRetryDelaySec) document.getElementById('fetch-retry-delay').value   = s.fetchRetryDelaySec;
     return s;
   } catch { return {}; }
 }
@@ -991,6 +995,14 @@ document.getElementById('stream-url').addEventListener('input',
   e => scheduleSave('streamUrl', e.target.value));
 document.getElementById('stream-fallback').addEventListener('input',
   e => scheduleSave('streamFallbackUrl', e.target.value));
+document.getElementById('fetch-target-url').addEventListener('input',
+  e => scheduleSave('fetchTargetUrl', e.target.value));
+document.getElementById('fetch-search-string').addEventListener('input',
+  e => scheduleSave('fetchSearchString', e.target.value));
+document.getElementById('fetch-max-attempts').addEventListener('input',
+  e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) scheduleSave('fetchMaxAttempts', v); });
+document.getElementById('fetch-retry-delay').addEventListener('input',
+  e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) scheduleSave('fetchRetryDelaySec', v); });
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 async function post(url, body) {
