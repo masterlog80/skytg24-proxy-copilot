@@ -538,6 +538,14 @@ initWS();
 // entry is appended to the Event Log exactly once across WebSocket updates.
 let _lastServerLogId = 0;
 
+// Track VPN status across WebSocket updates to detect transitions.
+let _prevVpnStatus = null;
+// True while fetchURL() is running – prevents concurrent auto-detection runs.
+let _isFetching = false;
+// Mirrors the current stream active state so renderVPN() can skip auto-start
+// when a proxy is already running.
+let _streamActive = false;
+
 function applyState({ vpn, stream, stats, serverLog }) {
   if (vpn)    renderVPN(vpn);
   if (stream) renderStream(stream);
@@ -555,6 +563,15 @@ function applyState({ vpn, stream, stats, serverLog }) {
 
 function renderVPN(v) {
   const { status, endpoint, ip, error } = v;
+
+  // Auto-start URL detection when the VPN first becomes connected
+  if (status === 'connected' && _prevVpnStatus !== 'connected') {
+    if (!_isFetching && !_streamActive) {
+      log('VPN connected – auto-starting stream URL detection…', 'info');
+      fetchURL();
+    }
+  }
+  _prevVpnStatus = status;
 
   // Header
   document.getElementById('hdr-dot').className = 'dot ' + dotClass(status);
@@ -581,6 +598,7 @@ function renderVPN(v) {
 }
 
 function renderStream(st) {
+  _streamActive = !!st.active;
   const cv   = document.getElementById('chip-stream-val');
   const cp   = document.getElementById('chip-stream-port');
   const msg  = document.getElementById('stream-msg');
@@ -682,6 +700,7 @@ async function disconnectVPN() {
 async function fetchURL() {
   const btn = document.getElementById('btn-fetch');
   btn.disabled = true;
+  _isFetching = true;
 
   const { targetUrl, searchString, maxAttempts, retryDelayMs } = getFetchConfig();
 
@@ -708,9 +727,15 @@ async function fetchURL() {
         document.getElementById('detected-url').textContent  = r.url;
         document.getElementById('detected-url').style.color  = 'var(--blue)';
         post('/api/settings', { streamUrl: r.url }).catch(() => {});
-        setMsg('stream-msg', '✓ URL detected successfully', 'var(--green)');
+        setMsg('stream-msg', '✓ URL detected – starting proxy…', 'var(--green)');
         log(`Stream URL detected (attempt ${attempt}, IP: ${externalIp}): ${r.url}`, 'ok');
         btn.disabled = false;
+        _isFetching = false;
+        // Auto-start the stream proxy now that we have a live URL
+        if (!_streamActive) {
+          log('Auto-starting stream proxy…', 'info');
+          await startStream();
+        }
         return;
       }
       // Got a response but the URL does not contain the search string
@@ -743,6 +768,7 @@ async function fetchURL() {
     log('Using fallback URL', 'warn');
   }
   btn.disabled = false;
+  _isFetching = false;
 }
 
 async function startStream() {
