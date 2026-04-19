@@ -97,7 +97,7 @@ app.post('/api/vpn/connect', (req, res) => {
 app.post('/api/vpn/disconnect', async (_req, res) => {
   try {
     await vpnManager.disconnect();
-    await streamManager.stopProxy();
+    streamManager.setSourceUrl(null);
     res.json({ message: 'VPN disconnected' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -198,15 +198,98 @@ wss.on('connection', (ws) => {
   ws.on('error', () => clearInterval(interval));
 });
 
-// ── Auto-stop stream when VPN drops ─────────────────────────────────────────
+// ── Auto-stop stream when VPN drops / auto-fetch URL when VPN connects ────────
 
 vpnManager.on('status', (state) => {
   if (state.status === 'disconnected' || state.status === 'error') {
-    if (streamManager.getStatus().active) {
-      addServerLog('Stream proxy stopped because VPN dropped', 'warn');
+    if (streamManager.getStatus().sourceUrl) {
+      addServerLog('Stream URL cleared because VPN dropped', 'warn');
     }
-    streamManager.stopProxy().catch(() => {});
+    streamManager.setSourceUrl(null);
+  } else if (state.status === 'connected' && !streamManager.getStatus().sourceUrl) {
+    // VPN just came up – auto-detect the live stream URL
+    autoFetchStreamUrl().catch(() => {});
   }
+});
+
+// ── Auto-management: HLS proxy always on, VPN on-demand ─────────────────────
+//
+// Rules:
+//   1. HLS proxy starts automatically on the configured port at server boot.
+//   2. When clientCount goes 0 → ≥1: connect VPN (using saved credentials),
+//      then auto-detect the Live Stream URL.
+//   3. When clientCount stays at 0 for 5 minutes: disconnect VPN.
+
+const NO_CLIENT_DISCONNECT_MS = 5 * 60 * 1000; // 5 minutes
+let _noClientTimer   = null;
+let _autoFetchActive = false;
+
+/** Fetch stream URL via Playwright + fall back to saved settings URL */
+async function autoFetchStreamUrl() {
+  if (_autoFetchActive) return;
+  _autoFetchActive = true;
+  try {
+    addServerLog('Auto-detecting Live Stream URL…', 'info');
+    const url = await streamManager.fetchSkyUrl();
+    streamManager.setSourceUrl(url);
+    settingsManager.save({ streamUrl: url });
+    addServerLog(`Live Stream URL auto-detected: ${url}`, 'ok');
+  } catch (err) {
+    addServerLog(`Stream URL auto-detect failed: ${err.message} – trying saved URL`, 'warn');
+    const s = settingsManager.get();
+    const fallback = s.streamUrl || s.streamFallbackUrl;
+    if (fallback) {
+      streamManager.setSourceUrl(fallback);
+      addServerLog(`Using saved stream URL: ${fallback}`, 'info');
+    } else {
+      addServerLog('No saved stream URL available; proxy will serve 503 until a URL is set', 'warn');
+    }
+  } finally {
+    _autoFetchActive = false;
+  }
+}
+
+// Client connected → connect VPN (if needed) + fetch stream URL
+streamManager.on('firstClientConnected', () => {
+  addServerLog('Client connected to HLS proxy', 'info');
+
+  // Cancel any pending VPN-disconnect timer
+  if (_noClientTimer) {
+    clearTimeout(_noClientTimer);
+    _noClientTimer = null;
+    addServerLog('VPN disconnect timer cancelled (client reconnected)', 'info');
+  }
+
+  const vpnStatus = vpnManager.getStatus();
+  if (vpnStatus.status === 'disconnected' || vpnStatus.status === 'error') {
+    const s = settingsManager.get();
+    if (s.vpnEndpoint && s.vpnUsername && s.vpnPassword) {
+      addServerLog(`Auto-connecting VPN to ${s.vpnEndpoint}…`, 'info');
+      try {
+        vpnManager.connect(s.vpnEndpoint, s.vpnUsername, s.vpnPassword);
+        // Stream URL will be fetched once the VPN 'connected' event fires (below)
+      } catch (connErr) {
+        addServerLog(`Auto-connect VPN failed: ${connErr.message}`, 'err');
+      }
+    } else {
+      addServerLog('Client connected but VPN credentials not configured – cannot auto-connect', 'warn');
+    }
+  } else if (vpnStatus.status === 'connected' && !streamManager.getStatus().sourceUrl) {
+    // VPN already up but no stream URL yet (e.g. URL was cleared) – re-fetch
+    autoFetchStreamUrl().catch(() => {});
+  }
+});
+
+// All clients gone → start 5-minute countdown before disconnecting VPN
+streamManager.on('noClientsLeft', () => {
+  addServerLog(`No clients – VPN will disconnect in ${NO_CLIENT_DISCONNECT_MS / 60000} minutes if no client reconnects`, 'warn');
+  if (_noClientTimer) clearTimeout(_noClientTimer);
+  _noClientTimer = setTimeout(async () => {
+    _noClientTimer = null;
+    addServerLog('No clients for 5 minutes – clearing stream URL and disconnecting VPN', 'warn');
+    streamManager.setSourceUrl(null);
+    await vpnManager.disconnect().catch(() => {});
+  }, NO_CLIENT_DISCONNECT_MS);
 });
 
 // ── Start ────────────────────────────────────────────────────────────────────
@@ -214,6 +297,14 @@ vpnManager.on('status', (state) => {
 const PORT = parseInt(process.env.CONTROL_PORT || '3000', 10);
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`✓ Sky TG24 Proxy – control panel on http://0.0.0.0:${PORT}`);
+  // Auto-start the HLS proxy on the configured stream port so it is always
+  // available, even before a VPN connection or stream URL is set.
+  const settings = settingsManager.get();
+  const streamPort = settings.streamPort || 6443;
+  streamManager.startProxy(null, streamPort).catch((err) => {
+    addServerLog(`Failed to auto-start HLS proxy on port ${streamPort}: ${err.message}`, 'err');
+    console.error('[server] Failed to auto-start HLS proxy:', err.message);
+  });
 });
 
 // Graceful shutdown
