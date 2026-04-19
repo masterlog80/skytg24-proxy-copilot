@@ -463,6 +463,28 @@
       </div>
     </div>
 
+    <!-- Traffic Data totals -->
+    <div class="card">
+      <div class="flex items-center justify-between mb-3">
+        <div class="card-title" style="margin-bottom:0">📊 Traffic Data</div>
+        <button class="btn btn-ghost btn-sm" onclick="resetVpnTrafficData()">Reset</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
+        <div class="chip">
+          <div class="chip-lbl">Upload (TX)</div>
+          <div class="chip-val" id="vpn-total-tx" style="color:var(--green)">0 B</div>
+        </div>
+        <div class="chip">
+          <div class="chip-lbl">Download (RX)</div>
+          <div class="chip-val" id="vpn-total-rx" style="color:var(--blue)">0 B</div>
+        </div>
+        <div class="chip">
+          <div class="chip-lbl">Total</div>
+          <div class="chip-val" id="vpn-total-combined" style="color:var(--txt2)">0 B</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Detected stream URL -->
     <div class="card">
       <div class="card-title">🔗 Detected Live Stream URL</div>
@@ -827,9 +849,24 @@ function renderStats(stats) {
   localTxData.push(localTx); localTxData.shift();
   localRxData.push(localRx); localRxData.shift();
   localTrafficChart.update('none');
+
+  const totalTx = stats.vpnTotalTx || 0;
+  const totalRx = stats.vpnTotalRx || 0;
+  document.getElementById('vpn-total-tx').textContent       = fmtBytes(totalTx);
+  document.getElementById('vpn-total-rx').textContent       = fmtBytes(totalRx);
+  document.getElementById('vpn-total-combined').textContent = fmtBytes(totalTx + totalRx);
 }
 
 // ── VPN actions ───────────────────────────────────────────────────────────────
+async function resetVpnTrafficData() {
+  try {
+    await post('/api/stats/vpn-data/reset', {});
+    log('VPN traffic counters reset', 'info');
+  } catch (e) {
+    log(`Reset error: ${e.message}`, 'err');
+  }
+}
+
 async function connectVPN() {
   const config   = document.getElementById('vpn-endpoint').value;
   const username = document.getElementById('vpn-user').value.trim();
@@ -1201,6 +1238,13 @@ function fmtRate(bps) {
   if (bps >= 1_048_576) return `${(bps / 1_048_576).toFixed(1)} MB/s`;
   if (bps >= 1_024)     return `${(bps / 1_024).toFixed(0)} KB/s`;
   return `${Math.round(bps)} B/s`;
+}
+
+function fmtBytes(bytes) {
+  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
+  if (bytes >= 1_048_576)     return `${(bytes / 1_048_576).toFixed(1)} MB`;
+  if (bytes >= 1_024)         return `${(bytes / 1_024).toFixed(0)} KB`;
+  return `${Math.round(bytes)} B`;
 }
 
 function log(msg, type = 'info') {

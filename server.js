@@ -195,6 +195,11 @@ app.get('/api/stats', async (_req, res) => {
   }
 });
 
+app.post('/api/stats/vpn-data/reset', (_req, res) => {
+  statsMonitor.resetVpnTraffic();
+  res.json({ message: 'VPN traffic counters reset' });
+});
+
 // ── WebSocket – push live state every second ─────────────────────────────────
 
 wss.on('connection', (ws) => {
