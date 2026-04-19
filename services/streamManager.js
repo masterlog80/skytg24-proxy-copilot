@@ -1,5 +1,6 @@
 'use strict';
 
+const EventEmitter = require('events');
 const express    = require('express');
 const http       = require('http');
 const fs         = require('fs');
@@ -58,8 +59,17 @@ const FETCH_HEADERS = {
 // How often (ms) to re-fetch stream info (resolution / frame-rate) while active
 const STREAM_INFO_POLL_MS = 10_000;
 
-class StreamManager {
-  constructor() {
+class StreamManager extends EventEmitter {
+  /**
+   * @param {() => object} [getVpnStatus]  Optional callback that returns the
+   *   current VPN status object.  When provided, its result is appended to
+   *   proxy-error log entries so the Event Log shows VPN context alongside
+   *   CDN errors, making it easy to see whether a geo-block or routing issue
+   *   is the cause of a stream failure.
+   */
+  constructor(getVpnStatus) {
+    super();
+    this._getVpnStatus = typeof getVpnStatus === 'function' ? getVpnStatus : null;
     this._server       = null;
     this._pollInterval = null;
     this._state        = {
@@ -73,6 +83,36 @@ class StreamManager {
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
+
+  /**
+   * Emit a 'log' event consumed by server.js and ultimately forwarded to the
+   * browser's 🖥 Event Log via the WebSocket push.  Also mirrors to stdout so
+   * that Docker / server logs capture the same information.
+   *
+   * @param {string} msg
+   * @param {'ok'|'info'|'warn'|'err'} [type]
+   */
+  _log(msg, type = 'info') {
+    console.log(`[StreamManager][${type}] ${msg}`);
+    this.emit('log', { msg, type });
+  }
+
+  /**
+   * Build a short VPN-context suffix (e.g. " [VPN: connected, IP: 1.2.3.4]")
+   * that is appended to error messages so the Event Log immediately shows
+   * whether a routing or geo-block issue is to blame for a CDN failure.
+   */
+  _vpnContext() {
+    if (!this._getVpnStatus) return '';
+    try {
+      const s = this._getVpnStatus();
+      if (!s) return '';
+      const ip = s.ip ? `, IP: ${s.ip}` : '';
+      return ` [VPN: ${s.status}${ip}]`;
+    } catch {
+      return '';
+    }
+  }
 
   /**
    * Launch a headless Chrome browser, load the Sky TG24 diretta page, and
@@ -355,12 +395,16 @@ class StreamManager {
       srv.listen(port, '0.0.0.0', () => {
         this._server = srv;
         this._state  = { active: true, port, sourceUrl, clientCount: 0, resolution: null, frameRate: null };
+        this._log(`Proxy started on port ${port}. Source URL: ${sourceUrl}${this._vpnContext()}`, 'ok');
         // Fetch stream info immediately, then poll on an interval
         this._fetchStreamInfo();
         this._pollInterval = setInterval(() => this._fetchStreamInfo(), STREAM_INFO_POLL_MS);
         resolve();
       });
-      srv.on('error', reject);
+      srv.on('error', (err) => {
+        this._log(`Proxy server failed to start on port ${port}: ${err.message}`, 'err');
+        reject(err);
+      });
     });
   }
 
@@ -373,6 +417,7 @@ class StreamManager {
         this._state = { active: false, port: null, sourceUrl: null, clientCount: 0, resolution: null, frameRate: null };
         return resolve();
       }
+      this._log('Proxy stopped', 'warn');
       this._server.close(() => {
         this._server = null;
         this._state  = { active: false, port: null, sourceUrl: null, clientCount: 0, resolution: null, frameRate: null };
@@ -429,13 +474,24 @@ class StreamManager {
   }
 
   async _proxy(url, req, res) {
-    const upstream = await fetch(url, {
-      headers: {
-        ...FETCH_HEADERS,
-        ...(req.headers.range ? { Range: req.headers.range } : {}),
-      },
-      timeout: 30_000,
-    });
+    let upstream;
+    try {
+      upstream = await fetch(url, {
+        headers: {
+          ...FETCH_HEADERS,
+          ...(req.headers.range ? { Range: req.headers.range } : {}),
+        },
+        timeout: 30_000,
+      });
+    } catch (fetchErr) {
+      // Surface network-level failures (DNS, TCP, timeout) in the Event Log so
+      // the user can see whether a routing or VPN issue is the cause.
+      this._log(
+        `Proxy fetch failed – could not reach CDN: ${fetchErr.message} (URL: ${url})${this._vpnContext()}`,
+        'err',
+      );
+      throw fetchErr;
+    }
 
     const ct = upstream.headers.get('content-type') || '';
     const isPlaylist =
@@ -447,6 +503,13 @@ class StreamManager {
     if (isPlaylist) {
       const body = await upstream.text();
       if (!upstream.ok) {
+        // Log the CDN-level error so it appears in the Event Log with VPN context,
+        // helping users distinguish between a geo-block (VPN issue) and an expired
+        // or invalid stream URL.
+        this._log(
+          `CDN returned HTTP ${upstream.status} for playlist${this._vpnContext()} — URL: ${url}`,
+          'warn',
+        );
         // Forward upstream error status so hls.js receives a proper HTTP error
         // rather than a 200 with invalid content that causes a silent parse failure.
         return res.status(upstream.status).send(body);
@@ -460,6 +523,13 @@ class StreamManager {
       res.set('Cache-Control', 'no-cache, no-store');
       res.send(this._rewritePlaylist(body, url, proxyHost));
     } else {
+      if (!upstream.ok) {
+        // Log non-2xx segment responses so the Event Log reveals CDN errors.
+        this._log(
+          `CDN returned HTTP ${upstream.status} for segment${this._vpnContext()} — URL: ${url}`,
+          'warn',
+        );
+      }
       res.status(upstream.status);
       res.set('Content-Type', ct);
       const cr = upstream.headers.get('content-range');

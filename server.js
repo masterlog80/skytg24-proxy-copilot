@@ -16,9 +16,37 @@ const server = http.createServer(app);
 const wss    = new WebSocket.Server({ server });
 
 const vpnManager      = new VPNManager();
-const streamManager   = new StreamManager();
+const streamManager   = new StreamManager(() => vpnManager.getStatus());
 const statsMonitor    = new StatsMonitor();
 const settingsManager = new SettingsManager();
+
+// ── Server-side event log ─────────────────────────────────────────────────────
+// Circular buffer (max 200 entries) shared between VPN and Stream events.
+// Entries are pushed to every connected WebSocket client on the next tick so
+// that the browser's 🖥 Event Log receives server-side errors in real time.
+const SERVER_LOG_MAX = 200;
+const serverLog = [];
+let   _logSeq   = 0;
+
+function addServerLog(msg, type = 'info') {
+  serverLog.push({ id: ++_logSeq, ts: Date.now(), msg, type });
+  if (serverLog.length > SERVER_LOG_MAX) serverLog.shift();
+}
+
+// Relay StreamManager log events (CDN errors, proxy start/stop, etc.)
+streamManager.on('log', ({ msg, type }) => addServerLog(msg, type));
+
+// Relay meaningful VPN state transitions so the Event Log shows, for example,
+// "VPN disconnected" right before a CDN geo-block error.
+vpnManager.on('status', (state) => {
+  if (state.status === 'connected') {
+    addServerLog(`VPN connected – endpoint: ${state.endpoint}, IP: ${state.ip || '?'}`, 'ok');
+  } else if (state.status === 'error') {
+    addServerLog(`VPN error: ${state.error}`, 'err');
+  } else if (state.status === 'disconnected') {
+    addServerLog('VPN disconnected', 'warn');
+  }
+});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -149,10 +177,11 @@ wss.on('connection', (ws) => {
     if (ws.readyState !== WebSocket.OPEN) return;
     try {
       ws.send(JSON.stringify({
-        vpn:    vpnManager.getStatus(),
-        stream: streamManager.getStatus(),
-        stats:  await statsMonitor.getStats(),
-        ts:     Date.now(),
+        vpn:       vpnManager.getStatus(),
+        stream:    streamManager.getStatus(),
+        stats:     await statsMonitor.getStats(),
+        serverLog: serverLog.slice(),   // send a snapshot of the circular buffer
+        ts:        Date.now(),
       }));
     } catch (_) { /* ignore */ }
   }, 1000);
@@ -165,6 +194,9 @@ wss.on('connection', (ws) => {
 
 vpnManager.on('status', (state) => {
   if (state.status === 'disconnected' || state.status === 'error') {
+    if (streamManager.getStatus().active) {
+      addServerLog('Stream proxy stopped because VPN dropped', 'warn');
+    }
     streamManager.stopProxy().catch(() => {});
   }
 });
