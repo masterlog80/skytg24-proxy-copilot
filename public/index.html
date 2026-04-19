@@ -1113,8 +1113,8 @@ async function loadSettings() {
     if (s.streamFallbackUrl) document.getElementById('stream-fallback').value = s.streamFallbackUrl;
     if (s.vpnUsername)       document.getElementById('vpn-user').value        = s.vpnUsername;
     if (s.vpnPassword)       document.getElementById('vpn-pass').value        = s.vpnPassword;
-    if (s.fetchTargetUrl)     document.getElementById('fetch-target-url').value    = s.fetchTargetUrl;
-    if (s.fetchSearchString)  document.getElementById('fetch-search-string').value = s.fetchSearchString;
+    if (s.fetchTargetUrl     != null) document.getElementById('fetch-target-url').value    = s.fetchTargetUrl;
+    if (s.fetchSearchString  != null) document.getElementById('fetch-search-string').value = s.fetchSearchString;
     if (s.fetchMaxAttempts)   document.getElementById('fetch-max-attempts').value  = s.fetchMaxAttempts;
     if (s.fetchRetryDelaySec) document.getElementById('fetch-retry-delay').value   = s.fetchRetryDelaySec;
     if (s.vpnDisconnectTimeoutMin != null) document.getElementById('vpn-disconnect-timeout').value = s.vpnDisconnectTimeoutMin;
@@ -1127,9 +1127,8 @@ async function loadSettings() {
 
 /** Load configs and settings in parallel, then restore the saved endpoint */
 async function init() {
-  // Populate fetch-config inputs from constants (single source of truth)
-  document.getElementById('fetch-target-url').value    = DEFAULT_FETCH_TARGET_URL;
-  document.getElementById('fetch-search-string').value = DEFAULT_FETCH_SEARCH_STRING;
+  // Populate fetch-config inputs with non-zero defaults; loadSettings() will
+  // overwrite with any previously saved values.
   document.getElementById('fetch-max-attempts').value  = DEFAULT_FETCH_MAX_ATTEMPTS;
   document.getElementById('fetch-retry-delay').value   = DEFAULT_FETCH_RETRY_DELAY_S;
   // Apply default toggle state (enabled) before settings are loaded

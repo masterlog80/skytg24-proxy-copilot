@@ -275,7 +275,7 @@ async function autoFetchStreamUrl() {
       return;
     }
     addServerLog('Auto-detecting Live Stream URL…', 'info');
-    const url = await streamManager.fetchSkyUrl();
+    const url = await streamManager.fetchSkyUrl(s.fetchTargetUrl ?? undefined, s.fetchSearchString ?? undefined);
     streamManager.setSourceUrl(url);
     settingsManager.save({ streamUrl: url });
     addServerLog(`Live Stream URL auto-detected: ${url}`, 'ok');
