@@ -91,14 +91,13 @@ class StreamManager extends EventEmitter {
 
   /**
    * Emit a 'log' event consumed by server.js and ultimately forwarded to the
-   * browser's 🖥 Event Log via the WebSocket push.  Also mirrors to stdout so
-   * that Docker / server logs capture the same information.
+   * browser's 🖥 Event Log via the WebSocket push.  Container-level stdout
+   * output is handled centrally by addServerLog() in server.js.
    *
    * @param {string} msg
    * @param {'ok'|'info'|'warn'|'err'} [type]
    */
   _log(msg, type = 'info') {
-    console.log(`[StreamManager][${type}] ${msg}`);
     this.emit('log', { msg, type });
   }
 

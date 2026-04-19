@@ -31,6 +31,8 @@ let   _logSeq   = 0;
 function addServerLog(msg, type = 'info') {
   serverLog.push({ id: ++_logSeq, ts: Date.now(), msg, type });
   if (serverLog.length > SERVER_LOG_MAX) serverLog.shift();
+  const prefix = type === 'ok' ? '✓' : type === 'warn' ? '⚠' : type === 'err' ? '✗' : 'ℹ';
+  console.log(`[eventlog] ${prefix} ${msg}`);
 }
 
 // Relay StreamManager log events (CDN errors, proxy start/stop, etc.)
