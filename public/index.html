@@ -303,6 +303,12 @@
           <button class="btn btn-red   flex-1" id="btn-disconnect" onclick="disconnectVPN()" disabled>✖ Disconnect</button>
         </div>
 
+        <div>
+          <label for="vpn-disconnect-timeout">Auto-disconnect timeout <small style="color:var(--txt2)">(minutes after last client leaves · 0 = disabled)</small></label>
+          <input type="number" id="vpn-disconnect-timeout" min="0" max="1440" style="width:110px" value="5" aria-describedby="vpn-disconnect-timeout-hint" />
+          <div id="vpn-disconnect-timeout-hint" class="text-xs mt-1" style="color:var(--txt2)">Set to 0 to keep the VPN connected indefinitely.</div>
+        </div>
+
         <div class="msg-box" id="vpn-msg">Ready</div>
       </div>
     </div>
@@ -1046,6 +1052,7 @@ async function loadSettings() {
     if (s.fetchSearchString)  document.getElementById('fetch-search-string').value = s.fetchSearchString;
     if (s.fetchMaxAttempts)   document.getElementById('fetch-max-attempts').value  = s.fetchMaxAttempts;
     if (s.fetchRetryDelaySec) document.getElementById('fetch-retry-delay').value   = s.fetchRetryDelaySec;
+    if (s.vpnDisconnectTimeoutMin != null) document.getElementById('vpn-disconnect-timeout').value = s.vpnDisconnectTimeoutMin;
     return s;
   } catch { return {}; }
 }
@@ -1088,6 +1095,8 @@ document.getElementById('fetch-max-attempts').addEventListener('input',
   e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) scheduleSave('fetchMaxAttempts', v); });
 document.getElementById('fetch-retry-delay').addEventListener('input',
   e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) scheduleSave('fetchRetryDelaySec', v); });
+document.getElementById('vpn-disconnect-timeout').addEventListener('input',
+  e => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) scheduleSave('vpnDisconnectTimeoutMin', v); });
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 async function post(url, body) {

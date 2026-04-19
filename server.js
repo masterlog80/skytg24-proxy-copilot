@@ -252,9 +252,9 @@ vpnManager.on('status', (state) => {
 //   1. HLS proxy starts automatically on the configured port at server boot.
 //   2. When clientCount goes 0 → ≥1: connect VPN (using saved credentials),
 //      then auto-detect the Live Stream URL.
-//   3. When clientCount stays at 0 for 5 minutes: disconnect VPN.
+//   3. When clientCount stays at 0 for the configured timeout: disconnect VPN.
+//      A timeout of 0 disables the auto-disconnect behaviour entirely.
 
-const NO_CLIENT_DISCONNECT_MS = 5 * 60 * 1000; // 5 minutes
 let _noClientTimer   = null;
 let _autoFetchActive = false;
 
@@ -314,16 +314,22 @@ streamManager.on('firstClientConnected', () => {
   }
 });
 
-// All clients gone → start 5-minute countdown before disconnecting VPN
+// All clients gone → start countdown before disconnecting VPN (if timeout is configured)
 streamManager.on('noClientsLeft', () => {
-  addServerLog(`No clients – VPN will disconnect in ${NO_CLIENT_DISCONNECT_MS / 60000} minutes if no client reconnects`, 'warn');
+  const timeoutMin = settingsManager.get().vpnDisconnectTimeoutMin ?? 5;
+  if (timeoutMin <= 0) {
+    addServerLog('No clients – VPN auto-disconnect is disabled', 'info');
+    return;
+  }
+  const timeoutMs = timeoutMin * 60 * 1000;
+  addServerLog(`No clients – VPN will disconnect in ${timeoutMin} minute${timeoutMin === 1 ? '' : 's'} if no client reconnects`, 'warn');
   if (_noClientTimer) clearTimeout(_noClientTimer);
   _noClientTimer = setTimeout(async () => {
     _noClientTimer = null;
-    addServerLog('No clients for 5 minutes – clearing stream URL and disconnecting VPN', 'warn');
+    addServerLog(`No clients for ${timeoutMin} minute${timeoutMin === 1 ? '' : 's'} – clearing stream URL and disconnecting VPN`, 'warn');
     streamManager.setSourceUrl(null);
     await vpnManager.disconnect().catch(() => {});
-  }, NO_CLIENT_DISCONNECT_MS);
+  }, timeoutMs);
 });
 
 // ── Start ────────────────────────────────────────────────────────────────────
