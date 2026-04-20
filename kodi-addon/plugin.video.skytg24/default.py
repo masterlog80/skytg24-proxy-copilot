@@ -6,8 +6,8 @@ Plays the HLS live stream exposed by the skytg24-proxy-copilot service.
 
 Entry points
 ------------
-  plugin://plugin.video.skytg24/          → root listing (one item: "Live")
-  plugin://plugin.video.skytg24/play      → resolves & plays the stream
+  plugin://plugin.video.skytg24/          → plays the stream directly (no submenu)
+  plugin://plugin.video.skytg24/?action=play → resolves & plays the stream
 """
 
 import sys
@@ -38,35 +38,14 @@ def _stream_url() -> str:
 # ---------------------------------------------------------------------------
 
 def _root_listing() -> None:
-    """Show the single 'Live' channel entry."""
-    play_url = f'{_BASE}?action=play'
-
-    item = xbmcgui.ListItem(label='Sky TG24 – Live')
-    item.setInfo('video', {
-        'title':  'Sky TG24 Live',
-        'plot':   'Sky TG24 live stream via skytg24-proxy-copilot.',
-        'genre':  'News',
-        'mediatype': 'video',
-    })
-    item.setArt({
-        'thumb':  _ADDON.getAddonInfo('icon'),
-        'fanart': _ADDON.getAddonInfo('fanart'),
-    })
-
-    # Mark the item as playable so Kodi shows the play arrow
-    item.setProperty('IsPlayable', 'true')
-
-    xbmcplugin.addDirectoryItem(
-        handle=_HANDLE,
-        url=play_url,
-        listitem=item,
-        isFolder=False,
-    )
-    xbmcplugin.endOfDirectory(_HANDLE)
+    """Directly launch the stream without showing an intermediate listing."""
+    _play_stream_direct()
+    # Close the directory handle without displaying any items
+    xbmcplugin.endOfDirectory(_HANDLE, succeeded=False)
 
 
-def _play_stream() -> None:
-    """Resolve and hand the HLS stream URL back to Kodi."""
+def _build_stream_item() -> xbmcgui.ListItem:
+    """Build a fully configured ListItem for the HLS stream."""
     url  = _stream_url()
     item = xbmcgui.ListItem(path=url)
 
@@ -85,7 +64,18 @@ def _play_stream() -> None:
         xbmc.log(f'plugin.video.skytg24: inputstream.adaptive unavailable – {exc}', xbmc.LOGWARNING)
     # -----------------------------------------------------------------------
 
-    xbmcplugin.setResolvedUrl(_HANDLE, True, item)
+    return item
+
+
+def _play_stream_direct() -> None:
+    """Start playback immediately (used when the plugin is opened at the root)."""
+    item = _build_stream_item()
+    xbmc.Player().play(_stream_url(), item)
+
+
+def _play_stream() -> None:
+    """Resolve and hand the HLS stream URL back to Kodi (used via ?action=play)."""
+    xbmcplugin.setResolvedUrl(_HANDLE, True, _build_stream_item())
 
 
 # ---------------------------------------------------------------------------
