@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="plugin.video.skytg24"
+       name="Sky TG24 Live"
+       version="1.0.0"
+       provider-name="skytg24-proxy-copilot">
+
+  <requires>
+    <import addon="xbmc.python" version="3.0.0"/>
+    <import addon="xbmc.gui"    version="5.14.0"/>
+  </requires>
+
+  <!-- Video plugin entry point -->
+  <extension point="xbmc.python.pluginsource" library="default.py">
+    <provides>video</provides>
+  </extension>
+
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en">Sky TG24 Live Stream</summary>
+    <description lang="en">
+      Plays the Sky TG24 live HLS stream through the local skytg24-proxy-copilot
+      reverse-proxy (http://192.168.10.245:6443/stream).
+      The stream host and port can be changed in the add-on settings.
+    </description>
+    <disclaimer lang="en">
+      This add-on requires the skytg24-proxy-copilot service to be running and
+      reachable on your local network.
+    </disclaimer>
+    <language/>
+    <platform>all</platform>
+    <license>MIT</license>
+    <forum/>
+    <website/>
+    <email/>
+    <source>https://github.com/masterlog80/skytg24-proxy-copilot</source>
+    <news>
+      v1.0.0 – Initial release.
+    </news>
+  </extension>
+
+</addon>

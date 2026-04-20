@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<settings version="2">
+  <section id="general">
+    <setting id="proxy_host" type="string"  label="Proxy host (IP or hostname)" default="192.168.10.245"/>
+    <setting id="proxy_port" type="integer" label="Proxy port"                  default="6443" range="1,65535"/>
+  </section>
+</settings>

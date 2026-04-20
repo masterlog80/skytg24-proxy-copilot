@@ -167,6 +167,47 @@ http://192.168.1.50:6443/stream
 
 ---
 
+## Kodi 21 (Omega) Android Plugin
+
+The repository includes a ready-to-install Kodi video add-on located in
+`kodi-addon/plugin.video.skytg24/`.  It plays the Sky TG24 HLS stream served
+by the proxy directly inside Kodi on Android (or any other platform).
+
+### Installation
+
+1. **Enable Unknown Sources** in Kodi:
+   *Settings → System → Add-ons → Unknown sources* → **On**
+
+2. **Copy the add-on folder** to your Android device.  
+   The easiest way is via **ADB**:
+
+   ```bash
+   # Replace 192.168.10.100 with your Android device's IP
+   adb connect 192.168.10.100
+
+   adb push kodi-addon/plugin.video.skytg24 \
+     /sdcard/Android/data/org.xbmc.kodi/files/.kodi/addons/plugin.video.skytg24
+   ```
+
+   Alternatively you can zip the folder and install it through
+   *Add-ons → Install from zip file*.
+
+3. **Enable the add-on** in Kodi:
+   *Add-ons → My add-ons → Video add-ons → Sky TG24 Live* → **Enable**
+
+4. *(Optional)* **Configure the proxy address**:
+   Right-click (or long-press) the add-on → **Settings**  
+   - **Proxy host** – default `192.168.10.245`
+   - **Proxy port** – default `6443`
+
+5. **Play**: open the add-on and click **Sky TG24 – Live**.
+
+> **Note**: The skytg24-proxy-copilot Docker container must be running and
+> reachable from your Android device on the configured host/port before
+> playback will work.
+
+---
+
 ## Architecture
 
 ```
