@@ -14,6 +14,9 @@
   </extension>
 
   <extension point="xbmc.addon.metadata">
+    <assets>
+      <icon>icon.png</icon>
+    </assets>
     <summary lang="en">Sky TG24 Live Stream</summary>
     <description lang="en">
       Plays the Sky TG24 live HLS stream through the local skytg24-proxy-copilot
