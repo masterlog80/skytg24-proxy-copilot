@@ -54,14 +54,15 @@ def _build_stream_item() -> xbmcgui.ListItem:
     item.setContentLookup(False)
 
     # --- inputstream.adaptive (optional) ------------------------------------
-    # On Android, Kodi 21 ships with InputStream Adaptive pre-installed.
-    # Using it gives adaptive bitrate switching; fall back silently if it is
-    # not available (Kodi will still play HLS natively via ExoPlayer).
-    try:
-        item.setProperty('inputstream', 'inputstream.adaptive')
-        item.setProperty('inputstream.adaptive.manifest_type', 'hls')
-    except (AttributeError, RuntimeError) as exc:
-        xbmc.log(f'plugin.video.skytg24: inputstream.adaptive unavailable – {exc}', xbmc.LOGWARNING)
+    # Disabled by default: Kodi's native ExoPlayer handles HLS with a much
+    # faster start-up time. Enable in add-on settings to get adaptive
+    # bitrate switching at the cost of a slower stream initialisation.
+    if _ADDON.getSettingBool('use_inputstream_adaptive'):
+        try:
+            item.setProperty('inputstream', 'inputstream.adaptive')
+            item.setProperty('inputstream.adaptive.manifest_type', 'hls')
+        except (AttributeError, RuntimeError) as exc:
+            xbmc.log(f'plugin.video.skytg24: inputstream.adaptive unavailable – {exc}', xbmc.LOGWARNING)
     # -----------------------------------------------------------------------
 
     return item
