@@ -3,5 +3,6 @@
   <section id="general">
     <setting id="proxy_host" type="string"  label="Proxy host (IP or hostname)" default="192.168.10.245"/>
     <setting id="proxy_port" type="integer" label="Proxy port"                  default="6443" range="1,65535"/>
+    <setting id="use_inputstream_adaptive" type="bool" label="Use inputstream.adaptive (adaptive bitrate - slower start)" default="false"/>
   </section>
 </settings>
