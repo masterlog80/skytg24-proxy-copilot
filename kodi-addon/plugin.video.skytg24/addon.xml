@@ -6,7 +6,6 @@
 
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
-    <import addon="xbmc.gui"    version="5.14.0"/>
   </requires>
 
   <!-- Video plugin entry point -->
